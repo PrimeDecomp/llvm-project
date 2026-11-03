@@ -1,0 +1,195 @@
+name: Switch toolchain
+
+on:
+  push:
+    branches: [switch-decomp]
+  pull_request:
+    branches: [switch-decomp]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Every pushed commit gets a release; only superseded PR builds are cancelled.
+concurrency:
+  group: switch-toolchain-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build and test (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: linux-x86_64
+            cc: gcc
+            cxx: g++
+            baseline_sha256: 03acce2ce25d0eff00465b3d68d58c540f24addf260972864b835be35c3416b1
+          - os: macos-15-intel
+            platform: macos-x86_64
+            cc: clang
+            cxx: clang++
+            baseline_sha256: 8aba3383eb6a7388a4b3073a58f8061b78cd610ae4070fab401cab524bcbf258
+          - os: windows-2022
+            platform: windows-x86_64
+            cc: clang-cl
+            cxx: clang-cl
+            baseline_sha256: 59fb180b218bbe2f0abe80a412584c384014539bd17d486f0651d891d7833078
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: PrimeDecomp/llvm-toolchains
+          ref: 542578ed0625cfaabcf7c4ac9d430128ff324cff
+          path: baseline
+          persist-credentials: false
+          sparse-checkout: ${{ matrix.platform }}.tar.xz
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.10'
+      - name: Fetch and verify baseline archive
+        working-directory: baseline
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          EXPECTED_SHA256: ${{ matrix.baseline_sha256 }}
+        run: |
+          git lfs pull --include="$PLATFORM.tar.xz" --exclude=''
+          python -c 'import hashlib, os, pathlib; p = pathlib.Path(os.environ["PLATFORM"] + ".tar.xz"); assert hashlib.sha256(p.read_bytes()).hexdigest() == os.environ["EXPECTED_SHA256"], "Baseline checksum mismatch"'
+      - name: Set up Windows SDK
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+        with:
+          arch: amd64
+      - name: Install build tools
+        run: python -m pip install cmake==3.31.10 ninja==1.13.0
+      - name: Configure
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: |
+          extra=()
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            extra+=(-DLLVM_STATIC_LINK_CXX_STDLIB=ON)
+          elif [[ "$RUNNER_OS" == Windows ]]; then
+            extra+=(-DLLVM_USE_CRT_RELEASE=MT)
+          elif [[ "$RUNNER_OS" == macOS ]]; then
+            extra+=(-DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15)
+          fi
+          cmake -S llvm -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/install" \
+            -DPYTHON_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" \
+            -DLLVM_ENABLE_PROJECTS=clang \
+            -DLLVM_TARGETS_TO_BUILD='AArch64;X86' \
+            -DLLVM_ENABLE_ASSERTIONS=ON \
+            -DLLVM_INCLUDE_TESTS=ON \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF \
+            -DLLVM_ENABLE_ZLIB=OFF \
+            -DLLVM_ENABLE_TERMINFO=OFF \
+            -DLLVM_ENABLE_LIBXML2=OFF \
+            -DLLVM_PARALLEL_COMPILE_JOBS=3 \
+            -DLLVM_PARALLEL_LINK_JOBS=1 \
+            -DLLVM_LIT_ARGS='-v --no-progress-bar -j 3' \
+            -DLLVM_DISTRIBUTION_COMPONENTS='clang;clang-resource-headers' \
+            "${extra[@]}"
+      - name: Build
+        run: cmake --build build
+      - name: Test LLVM and Clang
+        run: cmake --build build --target check-llvm check-clang
+      - name: Install
+        run: cmake --build build --target install-distribution
+      - name: Strip compiler
+        run: |
+          suffix=''
+          if [[ "$RUNNER_OS" == Windows ]]; then suffix=.exe; fi
+          "build/bin/llvm-strip$suffix" --strip-all "install/bin/clang$suffix"
+      - name: Package and test extracted toolchain
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: >-
+          python .github/scripts/package-toolchain.py
+          --install install --platform "$PLATFORM" --revision "$GITHUB_SHA"
+          --baseline "baseline/$PLATFORM.tar.xz"
+      - name: Upload toolchain
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: toolchain-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Upload test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: diagnostics-${{ matrix.platform }}
+          path: |
+            build/CMakeCache.txt
+            build/CMakeFiles/CMakeConfigureLog.yaml
+            build/**/Testing/**
+            build/**/Output/**
+          retention-days: 7
+
+  release:
+    name: Publish commit release
+    needs: build
+    if: github.repository == 'PrimeDecomp/llvm-project' && github.event_name != 'pull_request' && github.ref == 'refs/heads/switch-decomp'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: toolchain-*
+          merge-multiple: true
+          path: dist
+      - name: Verify complete release
+        run: |
+          cd dist
+          for platform in linux-x86_64 macos-x86_64 windows-x86_64; do
+            test -s "$platform.tar.xz"
+            sha256sum -c "$platform.tar.xz.sha256"
+          done
+          cat *.sha256 > SHA256SUMS
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          platforms = {p.stem: json.loads(p.read_text()) for p in Path('.').glob('*-x86_64.json')}
+          Path('manifest.json').write_text(json.dumps({'platforms': platforms}, indent=2) + '\n')
+          PY
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="switch-decomp-$GITHUB_SHA"
+          if gh release view "$tag" --json isDraft --jq '.isDraft' > draft.txt 2>/dev/null; then
+            # A completed release is immutable on reruns; a failed draft is resumed.
+            if [[ "$(cat draft.txt)" == false ]]; then
+              echo "Release already published: $tag"
+              exit 0
+            fi
+          else
+            gh release create "$tag" --target "$GITHUB_SHA" --draft \
+              --title "Switch toolchain ${GITHUB_SHA:0:12}" \
+              --notes "Minimal Clang 10.0.1 toolchains from commit $GITHUB_SHA, with LLD 18.1.8 and its libraries from PrimeDecomp/llvm-toolchains at 542578ed0625cfaabcf7c4ac9d430128ff324cff. Linux, macOS and Windows x86_64 hosts; AArch64 and X86 targets. LLVM/Clang regression tests and extracted-package compile/link tests passed. SHA256SUMS and manifest.json identify the archives."
+          fi
+          gh release upload "$tag" dist/*.tar.xz dist/SHA256SUMS dist/manifest.json --clobber
+          # An older build finishing later must not replace the newest release.
+          head=$(gh api "repos/$GH_REPO/git/ref/heads/switch-decomp" --jq '.object.sha')
+          latest=false
+          if [[ "$head" == "$GITHUB_SHA" ]]; then latest=true; fi
+          gh release edit "$tag" --draft=false --latest="$latest"
