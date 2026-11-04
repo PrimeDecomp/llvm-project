@@ -336,10 +336,15 @@ else()
 endif( LLVM_ENABLE_FFI )
 
 # Whether we can use std::is_trivially_copyable to verify llvm::is_trivially_copyable.
+# MSVC's std::pair follows DR 1734, unlike LLVM's ABI-stable pre-DR trait.
+# Check that case as well before enabling the equivalence assertions.
 CHECK_CXX_SOURCE_COMPILES("
 #include <type_traits>
+#include <utility>
 struct T { int val; };
 static_assert(std::is_trivially_copyable<T>::value, \"ok\");
+static_assert(!std::is_trivially_copyable<std::pair<int, int>>::value,
+              \"std::pair differs from LLVM's pre-DR 1734 trait\");
 int main() { return 0;}
 " HAVE_STD_IS_TRIVIALLY_COPYABLE)
 

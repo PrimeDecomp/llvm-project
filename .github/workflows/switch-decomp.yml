@@ -99,13 +99,17 @@ jobs:
             -DLLVM_ENABLE_LIBXML2=OFF \
             -DLLVM_PARALLEL_COMPILE_JOBS=3 \
             -DLLVM_PARALLEL_LINK_JOBS=1 \
-            -DLLVM_LIT_ARGS='-v --no-progress-bar -j 3' \
+            -DLLVM_LIT_ARGS='-sv --no-progress-bar -j 3' \
             -DLLVM_DISTRIBUTION_COMPONENTS='clang;clang-resource-headers' \
             "${extra[@]}"
       - name: Build
-        run: cmake --build build
+        run: |
+          set -o pipefail
+          cmake --build build 2>&1 | tee build/build.log
       - name: Test LLVM and Clang
-        run: cmake --build build --target check-llvm check-clang
+        run: |
+          set -o pipefail
+          cmake --build build --target check-llvm check-clang 2>&1 | tee build/test.log
       - name: Install
         run: cmake --build build --target install-distribution
       - name: Strip compiler
@@ -136,8 +140,8 @@ jobs:
           path: |
             build/CMakeCache.txt
             build/CMakeFiles/CMakeConfigureLog.yaml
-            build/**/Testing/**
-            build/**/Output/**
+            build/build.log
+            build/test.log
           retention-days: 7
 
   release:
