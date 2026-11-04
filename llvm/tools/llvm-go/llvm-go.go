@@ -192,6 +192,8 @@ func runGoWithLLVMEnv(args []string, cc, cxx, gocmd, llgo, cppflags, cxxflags, l
 		"CGO_CPPFLAGS=" + flags.cpp + " " + cppflags,
 		"CGO_CXXFLAGS=" + flags.cxx + " " + cxxflags,
 		"CGO_LDFLAGS=" + flags.ld + " " + ldflags,
+		// This wrapper constructs a GOPATH tree, not a Go module.
+		"GO111MODULE=off",
 		"GOPATH=" + newgopath,
 		"PATH=" + newpath,
 	}
@@ -206,6 +208,7 @@ func runGoWithLLVMEnv(args []string, cc, cxx, gocmd, llgo, cppflags, cxxflags, l
 			!strings.HasPrefix(v, "CGO_CXXFLAGS=") &&
 			!strings.HasPrefix(v, "CGO_LDFLAGS=") &&
 			!strings.HasPrefix(v, "GCCGO=") &&
+			!strings.HasPrefix(v, "GO111MODULE=") &&
 			!strings.HasPrefix(v, "GOPATH=") &&
 			!strings.HasPrefix(v, "PATH=") {
 			newenv = append(newenv, v)
