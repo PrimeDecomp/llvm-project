@@ -43,6 +43,9 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Preserve source line endings on Windows
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -60,11 +63,11 @@ jobs:
       - name: Fetch and verify baseline archive
         working-directory: baseline
         env:
-          PLATFORM: ${{ matrix.platform }}
+          TOOLCHAIN_PLATFORM: ${{ matrix.platform }}
           EXPECTED_SHA256: ${{ matrix.baseline_sha256 }}
         run: |
-          git lfs pull --include="$PLATFORM.tar.xz" --exclude=''
-          python -c 'import hashlib, os, pathlib; p = pathlib.Path(os.environ["PLATFORM"] + ".tar.xz"); assert hashlib.sha256(p.read_bytes()).hexdigest() == os.environ["EXPECTED_SHA256"], "Baseline checksum mismatch"'
+          git lfs pull --include="$TOOLCHAIN_PLATFORM.tar.xz" --exclude=''
+          python -c 'import hashlib, os, pathlib; p = pathlib.Path(os.environ["TOOLCHAIN_PLATFORM"] + ".tar.xz"); assert hashlib.sha256(p.read_bytes()).hexdigest() == os.environ["EXPECTED_SHA256"], "Baseline checksum mismatch"'
       - name: Set up Windows SDK
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
@@ -119,11 +122,11 @@ jobs:
           "build/bin/llvm-strip$suffix" --strip-all "install/bin/clang$suffix"
       - name: Package and test extracted toolchain
         env:
-          PLATFORM: ${{ matrix.platform }}
+          TOOLCHAIN_PLATFORM: ${{ matrix.platform }}
         run: >-
           python .github/scripts/package-toolchain.py
-          --install install --platform "$PLATFORM" --revision "$GITHUB_SHA"
-          --baseline "baseline/$PLATFORM.tar.xz"
+          --install install --platform "$TOOLCHAIN_PLATFORM" --revision "$GITHUB_SHA"
+          --baseline "baseline/$TOOLCHAIN_PLATFORM.tar.xz"
       - name: Upload toolchain
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
