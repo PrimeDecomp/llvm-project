@@ -313,14 +313,9 @@ TEST_F(HostTest, getMacOSHostVersion) {
   unsigned HostMajor, HostMinor, HostMicro;
   ASSERT_EQ(HostTriple.getMacOSXVersion(HostMajor, HostMinor, HostMicro), true);
 
-  if (SystemMajor > 10) {
-    // Darwin 20+ identifies only the major macOS version.
-    ASSERT_EQ(SystemMajor, HostMajor);
-  } else {
-    // Don't compare the 'Micro' version, as it's always '0' for the 'Darwin'
-    // triples.
-    ASSERT_EQ(std::tie(SystemMajor, SystemMinor), std::tie(HostMajor, HostMinor));
-  }
+  // Don't compare the 'Micro' version, as it's always '0' for the 'Darwin'
+  // triples.
+  ASSERT_EQ(std::tie(SystemMajor, SystemMinor), std::tie(HostMajor, HostMinor));
 }
 #endif
 
