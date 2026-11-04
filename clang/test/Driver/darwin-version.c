@@ -305,3 +305,17 @@
 // RUN: %clang -target armv7k-apple-ios10.1-simulator -c %s -### 2>&1 | \
 // RUN:   FileCheck --check-prefix=CHECK-VERSION-TENV-SIM2 %s
 // CHECK-VERSION-TENV-SIM2: "thumbv7k-apple-ios10.1.0-simulator"
+
+// RUN: %clang -target x86_64-apple-macosx11.0 -c -### %s 2>&1 | FileCheck %s --check-prefix=CHECK-MACOS11
+// RUN: %clang -target x86_64-apple-darwin20 -c -### %s 2>&1 | FileCheck %s --check-prefix=CHECK-MACOS11
+// CHECK-MACOS11-NOT: error:
+// CHECK-MACOS11: "-triple" "x86_64-apple-macosx11.0.0"
+// CHECK-MACOS11-NOT: error:
+// RUN: %clang -target x86_64-apple-macosx15.0 -c -### %s 2>&1 | FileCheck %s --check-prefix=CHECK-MACOS15
+// RUN: %clang -target x86_64-apple-darwin24 -c -### %s 2>&1 | FileCheck %s --check-prefix=CHECK-MACOS15
+// RUN: %clang -target x86_64-apple-darwin -mmacosx-version-min=15.0 -c -### %s 2>&1 | FileCheck %s --check-prefix=CHECK-MACOS15
+// CHECK-MACOS15-NOT: error:
+// CHECK-MACOS15: "-triple" "x86_64-apple-macosx15.0.0"
+// CHECK-MACOS15-NOT: error:
+// RUN: %clang -target x86_64-apple-darwin -mmacosx-version-min=100.0 -c -### %s 2>&1 | FileCheck %s --check-prefix=CHECK-MACOS-INVALID
+// CHECK-MACOS-INVALID: error: invalid version number in '-mmacosx-version-min=100.0'
