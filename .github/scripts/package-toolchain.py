@@ -103,8 +103,9 @@ def main():
     with archive.open('rb') as data:
         for block in iter(lambda: data.read(1024 * 1024), b''):
             digest.update(block)
-    (args.output / (archive.name + '.sha256')).write_text(
-        '{}  {}\n'.format(digest.hexdigest(), archive.name))
+    # Keep checksum files LF-terminated for sha256sum on the Linux release runner.
+    (args.output / (archive.name + '.sha256')).write_bytes(
+        '{}  {}\n'.format(digest.hexdigest(), archive.name).encode('ascii'))
     (args.output / (args.platform + '.json')).write_text(json.dumps({
         'archive': archive.name,
         'sha256': digest.hexdigest(),
