@@ -3650,8 +3650,12 @@ bool AArch64FastISel::fastLowerIntrinsicCall(const IntrinsicInst *II) {
     return true;
   }
   case Intrinsic::trap:
-    BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(AArch64::BRK))
-        .addImm(1);
+    if (Subtarget->isTargetSwitch())
+      BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
+              TII.get(AArch64::SWITCH_TRAP));
+    else
+      BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(AArch64::BRK))
+          .addImm(1);
     return true;
   case Intrinsic::debugtrap: {
     if (Subtarget->isTargetWindows()) {

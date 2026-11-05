@@ -47,7 +47,7 @@ def smoke_test(root):
     suffix = '.exe' if os.name == 'nt' else ''
     clang = root / 'bin' / ('clang' + suffix)
     linker = root / 'bin' / ('ld.lld' + suffix)
-    for executable, version in ((clang, '10.0.1'), (linker, '18.1.8')):
+    for executable, version in ((clang, '10.0.1'), (linker, '10.0.1')):
         result = run(executable, '--version', capture_output=True, text=True)
         print(result.stdout, end='')
         if version not in result.stdout:
@@ -66,6 +66,22 @@ def smoke_test(root):
         if header[:6] != b'\x7fELF\x02\x01' or struct.unpack('<H', header[18:20])[0] != 183:
             raise RuntimeError('Packaged compiler/linker did not produce AArch64 ELF')
 
+        # Verify the compiler backend in the shipped binary, then link its
+        # output with the shipped LLD. No disassembler is needed in the archive.
+        source.write_text('extern "C" void stop() { __builtin_trap(); }\n')
+        binary = work / 'trap.bin'
+        for flags in (('-O0',), ('-O2',), ('-O2', '-flto')):
+            run(clang, '--target=aarch64-decomp-switch-elf', '-ffreestanding',
+                *flags, '-fno-unwind-tables', '-fno-asynchronous-unwind-tables',
+                '-c', source, '-o', obj)
+            run(linker, '-m', 'aarch64elf', '-Ttext=0', '--oformat', 'binary',
+                '-e', 'stop', obj, '-o', binary)
+            # LLD 10 pads binary output to the target word size (eight bytes).
+            trailing = 0xd65f03c0 if flags == ('-O0',) else 0  # O0 retains RET.
+            if binary.read_bytes() != struct.pack('<II', 0xe7ffdefe, trailing):
+                raise RuntimeError('Packaged compiler/linker lost the Switch trap encoding')
+
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -73,7 +89,6 @@ def main():
     parser.add_argument('--platform', required=True,
                         choices=['linux-x86_64', 'macos-x86_64', 'windows-x86_64'])
     parser.add_argument('--revision', required=True)
-    parser.add_argument('--baseline', type=Path, required=True)
     parser.add_argument('--output', type=Path, default=Path('dist'))
     args = parser.parse_args()
     installed = args.install.resolve()
@@ -83,30 +98,15 @@ def main():
     root.mkdir()
     args.output.mkdir(parents=True, exist_ok=True)
     source = Path(__file__).resolve().parents[2]
-    # Keep the established LLD 18 binary and its runtime dependencies, pinned
-    # by the workflow to a specific llvm-toolchains commit and LFS digest.
-    with tarfile.open(args.baseline, 'r:xz') as baseline:
-        for member in baseline:
-            path = Path(member.name)
-            if (not member.isfile() or path.is_absolute() or '..' in path.parts
-                    or '\\' in member.name or ':' in member.name):
-                raise RuntimeError('Invalid baseline member: ' + member.name)
-            if member.name.startswith('lib/clang/') or member.name in ('bin/clang', 'bin/clang.exe'):
-                continue
-            target = root / path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with baseline.extractfile(member) as data, target.open('wb') as output:
-                shutil.copyfileobj(data, output)
-            target.chmod(member.mode & 0o777)
+    (root / 'bin').mkdir()
     suffix = '.exe' if os.name == 'nt' else ''
     shutil.copy2(installed / 'bin' / ('clang' + suffix), root / 'bin' / ('clang' + suffix))
+    shutil.copy2(installed / 'bin' / ('lld' + suffix), root / 'bin' / ('ld.lld' + suffix))
     shutil.copytree(installed / 'lib' / 'clang', root / 'lib' / 'clang')
     licenses = root / 'licenses'
     licenses.mkdir(parents=True, exist_ok=True)
-    for project in ('llvm', 'clang'):
+    for project in ('llvm', 'clang', 'lld'):
         shutil.copyfile(source / project / 'LICENSE.TXT', licenses / (project + '-10.0.1.txt'))
-    for project in ('llvm', 'clang'):
-        (licenses / (project + '-10.0.0.txt')).unlink(missing_ok=True)
     archive = args.output / (args.platform + '.tar.xz')
     # Store regular files only, including aliases: the existing toolchain
     # installer rejects links, and Windows cannot reliably restore symlinks.
@@ -138,7 +138,7 @@ def main():
         'archive': archive.name,
         'sha256': digest.hexdigest(),
         'clang': '10.0.1',
-        'lld': '18.1.8',
+        'lld': '10.0.1',
         'revision': args.revision,
     }, indent=2) + '\n')
 

@@ -13,6 +13,9 @@
 //===----------------------------------------------------------------------===//
 // ARM Instruction Predicate Definitions.
 //
+def IsSwitch : Predicate<"Subtarget->isTargetSwitch()">;
+def IsNotSwitch : Predicate<"!Subtarget->isTargetSwitch()">;
+
 def HasV8_1a         : Predicate<"Subtarget->hasV8_1aOps()">,
                                  AssemblerPredicate<"HasV8_1aOps", "armv8.1a">;
 def HasV8_2a         : Predicate<"Subtarget->hasV8_2aOps()">,
@@ -1990,6 +1993,12 @@ def : InstAlias<"dcps2", (DCPS2 0)>;
 def : InstAlias<"dcps3", (DCPS3 0)>;
 
 def UDF : UDFType<0, "udf">;
+
+// Switch software trap encoding for __builtin_trap.
+let hasSideEffects = 1, isTrap = 1, mayLoad = 0, mayStore = 0 in
+  def SWITCH_TRAP : I<(outs), (ins), "trap", "", "", []>, Sched<[]> {
+    let Inst = 0xe7ffdefe;
+  }
 
 //===----------------------------------------------------------------------===//
 // Load instructions.
@@ -6426,8 +6435,9 @@ def : Pat<(sra (i64 (sext GPR32:$Rn)), (i64 imm0_31:$imm)),
 def : Pat<(i32 (trunc GPR64sp:$src)),
           (i32 (EXTRACT_SUBREG GPR64sp:$src, sub_32))>;
 
-// __builtin_trap() uses the BRK instruction on AArch64.
-def : Pat<(trap), (BRK 1)>;
+// Preserve the Switch trap encoding only for its target triple.
+def : Pat<(trap), (SWITCH_TRAP)>, Requires<[IsSwitch]>;
+def : Pat<(trap), (BRK 1)>, Requires<[IsNotSwitch]>;
 def : Pat<(debugtrap), (BRK 0xF000)>, Requires<[IsWindows]>;
 
 // Multiply high patterns which multiply the lower subvector using smull/umull

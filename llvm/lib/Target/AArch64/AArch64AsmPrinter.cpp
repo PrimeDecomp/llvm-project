@@ -1000,6 +1000,10 @@ void AArch64AsmPrinter::EmitInstruction(const MachineInstr *MI) {
   switch (MI->getOpcode()) {
   default:
     break;
+  case AArch64::SWITCH_TRAP:
+    // Emit the raw word so external assemblers do not need the trap mnemonic.
+    OutStreamer->EmitIntValue(0xe7ffdefe, 4);
+    return;
   case AArch64::HINT: {
     // CurrentPatchableFunctionEntrySym can be CurrentFnBegin only for
     // -fpatchable-function-entry=N,0. The entry MBB is guaranteed to be
