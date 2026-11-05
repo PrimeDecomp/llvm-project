@@ -106,6 +106,7 @@ jobs:
             -DLLVM_INCLUDE_TESTS=ON \
             -DLLVM_INCLUDE_BENCHMARKS=OFF \
             -DLLVM_ENABLE_ZLIB=OFF \
+            -DLLVM_ENABLE_Z3_SOLVER=OFF \
             -DLLVM_ENABLE_TERMINFO=OFF \
             -DLLVM_ENABLE_LIBXML2=OFF \
             -DLLVM_PARALLEL_COMPILE_JOBS=3 \

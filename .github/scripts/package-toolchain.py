@@ -17,6 +17,32 @@ def run(*args, **kwargs):
     return subprocess.run([str(arg) for arg in args], check=True, **kwargs)
 
 
+def check_linux_dependencies(root):
+    env = os.environ.copy()
+    env.pop('LD_LIBRARY_PATH', None)
+    env.pop('LD_PRELOAD', None)
+    env['LC_ALL'] = 'C'
+    for path in sorted(root.rglob('*')):
+        if not path.is_file():
+            continue
+        with path.open('rb') as data:
+            if data.read(4) != b'\x7fELF':
+                continue
+        dynamic = run('readelf', '-d', path, capture_output=True, text=True, env=env)
+        if '(NEEDED)' not in dynamic.stdout:
+            continue
+        dependencies = run('ldd', path, capture_output=True, text=True, env=env)
+        if 'not found' in dependencies.stdout:
+            raise RuntimeError('Unresolved dependencies for {}:\n{}'.format(
+                path, dependencies.stdout))
+        for line in dependencies.stdout.splitlines():
+            name, separator, target = line.strip().partition(' => ')
+            if name.startswith('libtinfo.so'):
+                resolved = Path(target.rsplit(' (', 1)[0]).resolve()
+                if not separator or not resolved.is_relative_to(root.resolve()):
+                    raise RuntimeError('libtinfo is not bundled for ' + str(path))
+
+
 def smoke_test(root):
     suffix = '.exe' if os.name == 'nt' else ''
     clang = root / 'bin' / ('clang' + suffix)
@@ -98,6 +124,8 @@ def main():
         extracted = Path(temporary)
         with tarfile.open(archive, 'r:xz') as package:
             package.extractall(extracted)
+        if args.platform == 'linux-x86_64':
+            check_linux_dependencies(extracted)
         smoke_test(extracted)
     digest = hashlib.sha256()
     with archive.open('rb') as data:
