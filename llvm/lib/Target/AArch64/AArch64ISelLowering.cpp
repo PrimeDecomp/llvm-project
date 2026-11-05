@@ -12542,6 +12542,38 @@ performSignExtendInRegCombine(SDNode *N, TargetLowering::DAGCombinerInfo &DCI,
   return SDValue(N, 0);
 }
 
+// Expose a single-use sign extension to SUB's extended-register operand.
+//   sub x, (csel (sext_inreg y, i32), 0, cc, flags)
+// becomes
+//   csel (sub x, (sext_inreg y, i32)), x, cc, flags
+// This removes a separate SXTW without duplicating a shared extension or select.
+static SDValue performSubSelectExtendCombine(
+    SDNode *N, TargetLowering::DAGCombinerInfo &DCI) {
+  if (DCI.isBeforeLegalizeOps() || N->getValueType(0) != MVT::i64 ||
+      isNullConstant(N->getOperand(0)))
+    return SDValue();
+
+  SDValue Sel = N->getOperand(1);
+  if (Sel.getOpcode() != AArch64ISD::CSEL || !Sel.hasOneUse())
+    return SDValue();
+
+  bool ZeroIsFalse = isNullConstant(Sel.getOperand(1));
+  if (!ZeroIsFalse && !isNullConstant(Sel.getOperand(0)))
+    return SDValue();
+  SDValue Ext = Sel.getOperand(ZeroIsFalse ? 0 : 1);
+  if (Ext.getOpcode() != ISD::SIGN_EXTEND_INREG || !Ext.hasOneUse() ||
+      cast<VTSDNode>(Ext.getOperand(1))->getVT() != MVT::i32)
+    return SDValue();
+
+  SelectionDAG &DAG = DCI.DAG;
+  SDLoc DL(N);
+  SDValue Base = N->getOperand(0);
+  SDValue Sub = DAG.getNode(ISD::SUB, DL, MVT::i64, Base, Ext);
+  return DAG.getNode(AArch64ISD::CSEL, DL, MVT::i64,
+                     ZeroIsFalse ? Sub : Base, ZeroIsFalse ? Base : Sub,
+                     Sel.getOperand(2), Sel.getOperand(3));
+}
+
 SDValue AArch64TargetLowering::PerformDAGCombine(SDNode *N,
                                                  DAGCombinerInfo &DCI) const {
   SelectionDAG &DAG = DCI.DAG;
@@ -12549,8 +12581,12 @@ SDValue AArch64TargetLowering::PerformDAGCombine(SDNode *N,
   default:
     LLVM_DEBUG(dbgs() << "Custom combining: skipping\n");
     break;
-  case ISD::ADD:
   case ISD::SUB:
+    if (Subtarget->isTargetSwitch())
+      if (SDValue V = performSubSelectExtendCombine(N, DCI))
+        return V;
+    LLVM_FALLTHROUGH;
+  case ISD::ADD:
     return performAddSubLongCombine(N, DCI, DAG);
   case ISD::XOR:
     return performXorCombine(N, DAG, DCI, Subtarget);
