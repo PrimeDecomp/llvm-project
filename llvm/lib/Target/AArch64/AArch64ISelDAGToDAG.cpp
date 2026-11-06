@@ -2552,6 +2552,33 @@ bool AArch64DAGToDAGISel::tryBitfieldInsertInZeroOp(SDNode *N) {
   return true;
 }
 
+// Do not introduce a separate negated count if the subtraction is still needed
+// as an ordinary value. Look through the extensions used to legalize counts.
+static bool onlyShiftAmountUses(SDValue V, SDNode *Mask, EVT ShiftVT,
+                                unsigned &Budget, unsigned Depth = 0) {
+  if (Depth > 2)
+    return false;
+  for (SDNode *User : V->uses()) {
+    if (!Budget--)
+      return false;
+    if (User == Mask)
+      continue;
+    unsigned Opc = User->getOpcode();
+    if (Opc == ISD::ZERO_EXTEND || Opc == ISD::ANY_EXTEND) {
+      if (!onlyShiftAmountUses(SDValue(User, 0), Mask, ShiftVT, Budget, Depth + 1))
+        return false;
+      continue;
+    }
+    if ((Opc == ISD::SHL || Opc == ISD::SRL || Opc == ISD::SRA ||
+         Opc == ISD::ROTR) &&
+        User->getValueType(0) == ShiftVT && User->getOperand(1) == V &&
+        User->getOperand(0) != V)
+      continue;
+    return false;
+  }
+  return true;
+}
+
 /// tryShiftAmountMod - Take advantage of built-in mod of shift amount in
 /// variable shift/rotate instructions.
 bool AArch64DAGToDAGISel::tryShiftAmountMod(SDNode *N) {
@@ -2594,6 +2621,25 @@ bool AArch64DAGToDAGISel::tryShiftAmountMod(SDNode *N) {
   if (ShiftAmt->getOpcode() == ISD::ZERO_EXTEND ||
       ShiftAmt->getOpcode() == ISD::ANY_EXTEND)
     ShiftAmt = ShiftAmt->getOperand(0);
+
+  // A redundant mask must not hide a negated shift count. Only look through a
+  // single-use mask, and keep the existing subtraction when a non-shift use
+  // still needs its full value.
+  if (Subtarget->isTargetSwitch()) {
+    uint64_t MaskImm;
+    if (ShiftAmt.hasOneUse() &&
+        isOpcWithIntImmediate(ShiftAmt.getNode(), ISD::AND, MaskImm) &&
+        countTrailingOnes(MaskImm) >= Bits) {
+      SDValue Arith = ShiftAmt->getOperand(0);
+      uint64_t Imm;
+      unsigned Budget = 16;
+      if (Arith.getOpcode() == ISD::SUB &&
+          isIntImmediate(Arith.getOperand(0), Imm) && Imm != 0 &&
+          Imm % Size == 0 &&
+          onlyShiftAmountUses(Arith, ShiftAmt.getNode(), VT, Budget))
+        ShiftAmt = Arith;
+    }
+  }
 
   if (ShiftAmt->getOpcode() == ISD::ADD || ShiftAmt->getOpcode() == ISD::SUB) {
     SDValue Add0 = ShiftAmt->getOperand(0);
