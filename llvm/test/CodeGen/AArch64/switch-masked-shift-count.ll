@@ -46,8 +46,10 @@ define i32 @masked_asr(i32 %x, i32 %n) {
 define i32 @shared_sub(i32 %x, i32 %n, i32* %p) {
 ; CHECK-LABEL: shared_sub:
 ; CHECK: mov w8, #32
+; SWITCH: neg w9, w1
 ; CHECK: sub w8, w8, w1
-; CHECK: lsr w0, w0, w8
+; SWITCH: lsr w0, w0, w9
+; OTHER: lsr w0, w0, w8
 ; CHECK: str w8, [x2]
 ; CHECK: ret
   %neg = sub i32 32, %n

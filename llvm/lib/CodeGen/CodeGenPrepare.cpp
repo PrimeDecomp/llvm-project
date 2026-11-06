@@ -6011,8 +6011,57 @@ static Value *getTrueOrFalseValue(
   return V;
 }
 
+// Keep a scalar shift-count mask beside its use, where instruction selection
+// can discard it. A mask carried through a PHI otherwise becomes a real
+// instruction on each incoming edge.
+static bool sinkSwitchShiftCountMask(BinaryOperator *Shift,
+                                     const TargetMachine *TM) {
+  if (!TM)
+    return false;
+  const Triple &TT = TM->getTargetTriple();
+  if (TT.getArch() != Triple::aarch64 || TT.getVendorName() != "decomp" ||
+      TT.getOSName() != "switch")
+    return false;
+  Type *Ty = Shift->getType();
+  if (!Ty->isIntegerTy(32) && !Ty->isIntegerTy(64))
+    return false;
+  auto *PN = dyn_cast<PHINode>(Shift->getOperand(1));
+  if (!PN || !PN->hasOneUse() || PN->getParent() != Shift->getParent())
+    return false;
+
+  unsigned Mask = Ty->getIntegerBitWidth() - 1;
+  SmallVector<Value *, 4> Incoming;
+  bool Changed = false;
+  for (Value *V : PN->incoming_values()) {
+    Value *Unmasked;
+    if (match(V, m_And(m_Value(Unmasked), m_SpecificInt(Mask)))) {
+      Incoming.push_back(Unmasked);
+      Changed = true;
+    } else {
+      // This PHI is used only as this shift's count. An unmasked incoming
+      // count outside the width already makes that shift poison; masking it
+      // may refine poison, but cannot change a defined result.
+      Incoming.push_back(V);
+    }
+  }
+  if (!Changed)
+    return false;
+
+  auto *NewPN = PHINode::Create(Ty, Incoming.size(), "", PN);
+  NewPN->takeName(PN);
+  for (unsigned I = 0; I != Incoming.size(); ++I)
+    NewPN->addIncoming(Incoming[I], PN->getIncomingBlock(I));
+  IRBuilder<> Builder(Shift);
+  Value *Masked = Builder.CreateAnd(NewPN, Mask, "shift.count");
+  PN->replaceAllUsesWith(Masked);
+  PN->eraseFromParent();
+  return true;
+}
+
 bool CodeGenPrepare::optimizeShiftInst(BinaryOperator *Shift) {
   assert(Shift->isShift() && "Expected a shift");
+  if (sinkSwitchShiftCountMask(Shift, TM))
+    return true;
 
   // If this is (1) a vector shift, (2) shifts by scalars are cheaper than
   // general vector shifts, and (3) the shift amount is a select-of-splatted
