@@ -405,6 +405,11 @@ public:
 
   bool isLittleEndian() const { return IsLittle; }
 
+  bool isTargetSwitch() const {
+    return TargetTriple.getArch() == Triple::aarch64 &&
+           TargetTriple.getVendorName() == "decomp" &&
+           TargetTriple.getOSName() == "switch";
+  }
   bool isTargetDarwin() const { return TargetTriple.isOSDarwin(); }
   bool isTargetIOS() const { return TargetTriple.isiOS(); }
   bool isTargetLinux() const { return TargetTriple.isOSLinux(); }

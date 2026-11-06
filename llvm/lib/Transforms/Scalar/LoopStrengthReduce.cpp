@@ -64,6 +64,7 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/Triple.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Analysis/IVUsers.h"
 #include "llvm/Analysis/LoopAnalysisManager.h"
@@ -5475,12 +5476,34 @@ void LSRInstance::ImplementSolution(
       Rewriter.setChainedPhi(PN);
   }
 
-  // Expand the new value definitions and update the users.
-  for (size_t LUIdx = 0, NumUses = Uses.size(); LUIdx != NumUses; ++LUIdx)
-    for (const LSRFixup &Fixup : Uses[LUIdx].Fixups) {
-      Rewrite(Uses[LUIdx], Fixup, *Solution[LUIdx], Rewriter, DeadInsts);
-      Changed = true;
+  const Triple TT(L->getHeader()->getModule()->getTargetTriple());
+  const bool ExpandIntegerUsesFirst = TT.getArch() == Triple::aarch64 &&
+                                      TT.getVendorName() == "decomp" &&
+                                      TT.getOSName() == "switch";
+
+  // Expand integer uses before address uses on Switch. This keeps an unscaled
+  // induction value live until its scaled address is formed, allowing the
+  // allocator to reuse that register for the address instead of the loop count.
+  // Preserve the relative order within each group and the original order on
+  // other targets.
+  for (unsigned Phase = 0; Phase != (ExpandIntegerUsesFirst ? 2u : 1u);
+       ++Phase) {
+    for (size_t LUIdx = 0; LUIdx != Uses.size(); ++LUIdx) {
+      const LSRUse &LU = Uses[LUIdx];
+      if (ExpandIntegerUsesFirst) {
+        const bool IsIntegerUse = LU.Kind == LSRUse::Basic &&
+                                  LU.WidestFixupType &&
+                                  LU.WidestFixupType->isIntegerTy();
+        if (IsIntegerUse != (Phase == 0)) {
+          continue;
+        }
+      }
+      for (const LSRFixup &Fixup : LU.Fixups) {
+        Rewrite(LU, Fixup, *Solution[LUIdx], Rewriter, DeadInsts);
+        Changed = true;
+      }
     }
+  }
 
   for (const IVChain &Chain : IVChainVec) {
     GenerateIVChain(Chain, Rewriter, DeadInsts);

@@ -2595,6 +2595,26 @@ bool AArch64DAGToDAGISel::tryShiftAmountMod(SDNode *N) {
       ShiftAmt->getOpcode() == ISD::ANY_EXTEND)
     ShiftAmt = ShiftAmt->getOperand(0);
 
+  // A redundant mask must not hide arithmetic that leaves the hardware shift
+  // count unchanged. Only look through a single-use mask; any other uses of
+  // the arithmetic retain its full value.
+  if (Subtarget->isTargetSwitch()) {
+    uint64_t MaskImm;
+    if (ShiftAmt.hasOneUse() &&
+        isOpcWithIntImmediate(ShiftAmt.getNode(), ISD::AND, MaskImm) &&
+        countTrailingOnes(MaskImm) >= Bits) {
+      SDValue Arith = ShiftAmt->getOperand(0);
+      uint64_t Imm;
+      if ((Arith.getOpcode() == ISD::ADD || Arith.getOpcode() == ISD::SUB) &&
+          isIntImmediate(Arith.getOperand(1), Imm) && Imm % Size == 0)
+        ShiftAmt = Arith;
+      else if (Arith.getOpcode() == ISD::SUB &&
+               isIntImmediate(Arith.getOperand(0), Imm) && Imm != 0 &&
+               Imm % Size == 0)
+        ShiftAmt = Arith;
+    }
+  }
+
   if (ShiftAmt->getOpcode() == ISD::ADD || ShiftAmt->getOpcode() == ISD::SUB) {
     SDValue Add0 = ShiftAmt->getOperand(0);
     SDValue Add1 = ShiftAmt->getOperand(1);

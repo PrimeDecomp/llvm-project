@@ -2862,6 +2862,18 @@ Generic_GCC::TranslateArgs(const llvm::opt::DerivedArgList &Args, StringRef,
 
 void Generic_ELF::anchor() {}
 
+Generic_ELF::Generic_ELF(const Driver &D, const llvm::Triple &Triple,
+                         const ArgList &Args)
+    : Generic_GCC(D, Triple, Args),
+      UseLinkerDirectly(Args.hasArgNoClaim(options::OPT_ld_path_EQ)) {}
+
+Tool *Generic_ELF::buildLinker() const {
+  // An explicit linker path must bypass the GCC driver used by generic targets.
+  if (UseLinkerDirectly)
+    return new tools::gnutools::Linker(*this);
+  return Generic_GCC::buildLinker();
+}
+
 void Generic_ELF::addClangTargetOptions(const ArgList &DriverArgs,
                                         ArgStringList &CC1Args,
                                         Action::OffloadKind) const {

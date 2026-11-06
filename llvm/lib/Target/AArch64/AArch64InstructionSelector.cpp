@@ -4068,7 +4068,10 @@ bool AArch64InstructionSelector::selectIntrinsicWithSideEffects(
   default:
     return false;
   case Intrinsic::trap:
-    MIRBuilder.buildInstr(AArch64::BRK, {}, {}).addImm(1);
+    if (STI.isTargetSwitch())
+      MIRBuilder.buildInstr(AArch64::SWITCH_TRAP, {}, {});
+    else
+      MIRBuilder.buildInstr(AArch64::BRK, {}, {}).addImm(1);
     break;
   case Intrinsic::debugtrap:
     if (!STI.isTargetWindows())
