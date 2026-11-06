@@ -2622,9 +2622,9 @@ bool AArch64DAGToDAGISel::tryShiftAmountMod(SDNode *N) {
       ShiftAmt->getOpcode() == ISD::ANY_EXTEND)
     ShiftAmt = ShiftAmt->getOperand(0);
 
-  // A redundant mask must not hide a negated shift count. Only look through a
-  // single-use mask, and keep the existing subtraction when a non-shift use
-  // still needs its full value.
+  // A redundant mask must not hide arithmetic that leaves the hardware shift
+  // count unchanged. Only look through a single-use mask. Negating a count
+  // must not duplicate a subtraction whose full value has a non-shift use.
   if (Subtarget->isTargetSwitch()) {
     uint64_t MaskImm;
     if (ShiftAmt.hasOneUse() &&
@@ -2633,7 +2633,10 @@ bool AArch64DAGToDAGISel::tryShiftAmountMod(SDNode *N) {
       SDValue Arith = ShiftAmt->getOperand(0);
       uint64_t Imm;
       unsigned Budget = 16;
-      if (Arith.getOpcode() == ISD::SUB &&
+      if ((Arith.getOpcode() == ISD::ADD || Arith.getOpcode() == ISD::SUB) &&
+          isIntImmediate(Arith.getOperand(1), Imm) && Imm % Size == 0)
+        ShiftAmt = Arith;
+      else if (Arith.getOpcode() == ISD::SUB &&
           isIntImmediate(Arith.getOperand(0), Imm) && Imm != 0 &&
           Imm % Size == 0 &&
           onlyShiftAmountUses(Arith, ShiftAmt.getNode(), VT, Budget))
