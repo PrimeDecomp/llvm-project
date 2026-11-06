@@ -21,6 +21,7 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/ADT/Triple.h"
 #include "llvm/Analysis/BlockFrequencyInfo.h"
 #include "llvm/Analysis/BranchProbabilityInfo.h"
 #include "llvm/Analysis/ConstantFolding.h"
@@ -417,6 +418,56 @@ INITIALIZE_PASS_END(CodeGenPrepare, DEBUG_TYPE,
 
 FunctionPass *llvm::createCodeGenPreparePass() { return new CodeGenPrepare(); }
 
+static bool isSwitchDecompTarget(const Function &F) {
+  const Triple TT(F.getParent()->getTargetTriple());
+  return TT.getArch() == Triple::aarch64 && TT.getVendorName() == "decomp" &&
+         TT.getOSName() == "switch";
+}
+
+// Retain the comparison and operand orientation used by Switch scalar
+// alignment helpers after the general IR canonicalizations have finished.
+static bool normalizeSwitchScalarArithmetic(Function &F) {
+  if (!isSwitchDecompTarget(F))
+    return false;
+  bool Changed = false;
+  for (BasicBlock &BB : F) {
+    for (Instruction &I : BB) {
+      if (auto *SI = dyn_cast<SelectInst>(&I)) {
+        auto *Cmp = dyn_cast<ICmpInst>(SI->getCondition());
+        if (Cmp && Cmp->hasOneUse() &&
+            Cmp->getPredicate() == ICmpInst::ICMP_SGT &&
+            match(Cmp->getOperand(1), m_Zero()) &&
+            match(SI->getFalseValue(), m_Zero())) {
+          Value *V = Cmp->getOperand(0), *Shift = nullptr, *Back = nullptr;
+          bool Narrow =
+              match(SI->getTrueValue(), m_SExt(m_Trunc(m_Specific(V))));
+          Narrow |= match(SI->getTrueValue(),
+                          m_AShr(m_Shl(m_Specific(V), m_Value(Shift)),
+                                 m_Value(Back))) &&
+                    Shift == Back && isa<ConstantInt>(Shift);
+          if (Narrow) {
+            Cmp->setPredicate(ICmpInst::ICMP_SLE);
+            SI->swapValues();
+            Changed = true;
+          }
+        }
+      }
+      auto *Add = dyn_cast<BinaryOperator>(&I);
+      if (!Add || Add->getOpcode() != Instruction::Add || !Add->hasOneUse() ||
+          !isa<PHINode>(Add->getOperand(0)))
+        continue;
+      Value *Mask = nullptr, *Align = nullptr;
+      if (match(*Add->user_begin(), m_And(m_Specific(Add), m_Value(Mask))) &&
+          match(Mask, m_Neg(m_Value(Align))) &&
+          match(Add->getOperand(1), m_Add(m_Specific(Align), m_AllOnes()))) {
+        Add->swapOperands();
+        Changed = true;
+      }
+    }
+  }
+  return Changed;
+}
+
 bool CodeGenPrepare::runOnFunction(Function &F) {
   if (skipFunction(F))
     return false;
@@ -507,6 +558,8 @@ bool CodeGenPrepare::runOnFunction(Function &F) {
     LargeOffsetGEPMap.clear();
     LargeOffsetGEPID.clear();
   }
+
+  EverMadeChange |= normalizeSwitchScalarArithmetic(F);
 
   SunkAddrs.clear();
 
@@ -4631,6 +4684,57 @@ bool AddressingModeMatcher::valueAlreadyLiveAtInst(Value *Val,Value *KnownLive1,
   return Val->isUsedInBasicBlock(MemoryInst->getParent());
 }
 
+// Keep a null-initialized pointer member's address live across a checked
+// replacement. The equality check and subsequent memory uses describe the
+// relationship; no source type or function identity is required.
+static bool hasNullPointerReplacementCheck(Instruction *I) {
+  if (!isa<GetElementPtrInst>(I) ||
+      !I->getType()->getPointerElementType()->isPointerTy())
+    return false;
+  bool NullInit = false, NonLocal = false;
+  SmallVector<Value *, 8> Work{I};
+  SmallPtrSet<Value *, 16> Seen;
+  SmallVector<LoadInst *, 8> Loads;
+  SmallPtrSet<Value *, 8> Replacements;
+  while (!Work.empty()) {
+    Value *V = Work.pop_back_val();
+    if (!Seen.insert(V).second)
+      continue;
+    for (User *U : V->users()) {
+      auto *UI = dyn_cast<Instruction>(U);
+      if (!UI)
+        return false;
+      if (isa<BitCastInst>(UI)) {
+        Work.push_back(UI);
+        continue;
+      }
+      if (auto *LI = dyn_cast<LoadInst>(UI)) {
+        Loads.push_back(LI);
+      } else if (auto *SI = dyn_cast<StoreInst>(UI)) {
+        if (SI->getPointerOperand() != V)
+          return false;
+        if (isa<ConstantPointerNull>(SI->getValueOperand()))
+          NullInit |= SI->getParent() == I->getParent();
+        else
+          Replacements.insert(SI->getValueOperand());
+      } else if (!isa<DbgInfoIntrinsic>(UI)) {
+        return false;
+      }
+      NonLocal |= UI->getParent() != I->getParent();
+    }
+  }
+  if (!NullInit || !NonLocal)
+    return false;
+  for (LoadInst *LI : Loads)
+    for (User *U : LI->users())
+      if (auto *Cmp = dyn_cast<ICmpInst>(U))
+        if (Cmp->isEquality() &&
+            Replacements.count(Cmp->getOperand(0) == LI ? Cmp->getOperand(1)
+                                                        : Cmp->getOperand(0)))
+          return true;
+  return false;
+}
+
 /// It is possible for the addressing mode of the machine to fold the specified
 /// instruction into a load or store that ultimately uses it.
 /// However, the specified instruction has multiple uses.
@@ -4656,6 +4760,10 @@ bool AddressingModeMatcher::
 isProfitableToFoldIntoAddressingMode(Instruction *I, ExtAddrMode &AMBefore,
                                      ExtAddrMode &AMAfter) {
   if (IgnoreProfitability) return true;
+
+  if (isSwitchDecompTarget(*I->getFunction()) &&
+      hasNullPointerReplacementCheck(I))
+    return false;
 
   // AMBefore is the addressing mode before this instruction was folded into it,
   // and AMAfter is the addressing mode after the instruction was folded.  Get

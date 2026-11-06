@@ -18,6 +18,7 @@
 #include "llvm/ADT/PriorityQueue.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/Triple.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/CodeGen/LiveInterval.h"
@@ -58,6 +59,7 @@
 #include "llvm/Support/GraphWriter.h"
 #include "llvm/Support/MachineValueType.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Target/TargetMachine.h"
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -1556,6 +1558,33 @@ createStoreClusterDAGMutation(const TargetInstrInfo *TII,
 
 } // end namespace llvm
 
+static bool hasZeroWritebackPredecessor(SUnit *SU,
+                                       const TargetRegisterInfo *TRI) {
+  for (const SDep &Pred : SU->Preds) {
+    if (!Pred.isCtrl() || Pred.isArtificial() || !Pred.getSUnit()->getInstr())
+      continue;
+    const MachineInstr &MI = *Pred.getSUnit()->getInstr();
+    if (!MI.mayStore())
+      continue;
+    bool Writeback = false, HasValue = false, AllZero = true;
+    for (unsigned Idx = 0, End = MI.getNumOperands(); Idx != End; ++Idx) {
+      const MachineOperand &MO = MI.getOperand(Idx);
+      if (!MO.isReg() || MO.isImplicit())
+        continue;
+      if (MO.isDef()) {
+        Writeback |= MI.isRegTiedToUseOperand(Idx);
+      } else if (!MI.isRegTiedToDefOperand(Idx)) {
+        HasValue = true;
+        AllZero &= Register::isPhysicalRegister(MO.getReg()) &&
+                   TRI->isConstantPhysReg(MO.getReg());
+      }
+    }
+    if (Writeback && HasValue && AllZero)
+      return true;
+  }
+  return false;
+}
+
 void BaseMemOpClusterMutation::clusterNeighboringMemOps(
     ArrayRef<SUnit *> MemOps, ScheduleDAGInstrs *DAG) {
   SmallVector<MemOpInfo, 32> MemOpRecords;
@@ -1569,12 +1598,23 @@ void BaseMemOpClusterMutation::clusterNeighboringMemOps(
     return;
 
   llvm::sort(MemOpRecords);
+  const Triple &TT = DAG->MF.getTarget().getTargetTriple();
+  const bool PreserveZeroWritebackOrder = TT.getArch() == Triple::aarch64 &&
+                                         TT.getVendorName() == "decomp" &&
+                                         TT.getOSName() == "switch";
   unsigned ClusterLength = 1;
   for (unsigned Idx = 0, End = MemOpRecords.size(); Idx < (End - 1); ++Idx) {
     SUnit *SUa = MemOpRecords[Idx].SU;
     SUnit *SUb = MemOpRecords[Idx+1].SU;
     if (SUa->NodeNum > SUb->NodeNum)
       std::swap(SUa, SUb);
+    // On Switch, retain scheduling freedom after a zero-initializing
+    // writeback store. The later load/store pass can still form adjacent pairs.
+    if (PreserveZeroWritebackOrder && (hasZeroWritebackPredecessor(SUa, TRI) ||
+                                     hasZeroWritebackPredecessor(SUb, TRI))) {
+      ClusterLength = 1;
+      continue;
+    }
     if (TII->shouldClusterMemOps(*MemOpRecords[Idx].BaseOp,
                                  *MemOpRecords[Idx + 1].BaseOp,
                                  ClusterLength) &&
