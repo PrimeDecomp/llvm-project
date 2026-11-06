@@ -22,6 +22,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/Triple.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/BasicAliasAnalysis.h"
@@ -533,6 +534,10 @@ inlineCallsImpl(CallGraphSCC &SCC, CallGraph &CG,
                 function_ref<InlineCost(CallSite CS)> GetInlineCost,
                 function_ref<AAResults &(Function &)> AARGetter,
                 ImportedFunctionsInliningStatistics &ImportedFunctionsStats) {
+  const Triple TT(CG.getModule().getTargetTriple());
+  const bool PreserveCrossBlockCallOrder = TT.getArch() == Triple::aarch64 &&
+                                           TT.getVendorName() == "decomp" &&
+                                           TT.getOSName() == "switch";
   SmallPtrSet<Function *, 8> SCCFunctions;
   LLVM_DEBUG(dbgs() << "Inliner visiting SCC:");
   for (CallGraphNode *Node : SCC) {
@@ -739,7 +744,27 @@ inlineCallsImpl(CallGraphSCC &SCC, CallGraph &CG,
       // swap/pop_back for efficiency, but do not use it if doing so would
       // move a call site to a function in this SCC before the
       // 'FirstCallInSCC' barrier.
-      if (SCC.isSingular()) {
+      bool PreserveCalleeOrder = false;
+      if (PreserveCrossBlockCallOrder && SCC.isSingular() &&
+          CSi + 1 < CallSites.size()) {
+        CallSite Last = CallSites.back().first;
+        Function *LastCallee = Last.getCalledFunction();
+        if (LastCallee && !LastCallee->isDeclaration()) {
+          for (unsigned J = CSi + 1; J + 1 < CallSites.size(); ++J) {
+            CallSite Pending = CallSites[J].first;
+            if (Pending.getCalledFunction() == LastCallee &&
+                Pending.getInstruction()->getParent() !=
+                    Last.getInstruction()->getParent()) {
+              PreserveCalleeOrder = true;
+              break;
+            }
+          }
+        }
+      }
+      // On Switch, do not move a call ahead of an earlier call to the same
+      // callee in another block. Retaining their call-site order also retains
+      // the order in which their inlined temporaries are introduced.
+      if (SCC.isSingular() && !PreserveCalleeOrder) {
         CallSites[CSi] = CallSites.back();
         CallSites.pop_back();
       } else {
