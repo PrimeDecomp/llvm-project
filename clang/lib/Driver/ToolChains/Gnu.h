@@ -348,10 +348,14 @@ private:
 class LLVM_LIBRARY_VISIBILITY Generic_ELF : public Generic_GCC {
   virtual void anchor();
 
+  const bool UseLinkerDirectly;
+
+protected:
+  Tool *buildLinker() const override;
+
 public:
   Generic_ELF(const Driver &D, const llvm::Triple &Triple,
-              const llvm::opt::ArgList &Args)
-      : Generic_GCC(D, Triple, Args) {}
+              const llvm::opt::ArgList &Args);
 
   void addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
                              llvm::opt::ArgStringList &CC1Args,

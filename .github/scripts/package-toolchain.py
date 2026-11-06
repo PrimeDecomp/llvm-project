@@ -66,6 +66,15 @@ def smoke_test(root):
         if header[:6] != b'\x7fELF\x02\x01' or struct.unpack('<H', header[18:20])[0] != 183:
             raise RuntimeError('Packaged compiler/linker did not produce AArch64 ELF')
 
+        # The generic Switch target must invoke the requested linker directly,
+        # without depending on an installed GCC driver or cross toolchain.
+        for target in ('aarch64-decomp-switch-elf', 'aarch64-none-elf'):
+            run(clang, '--target=' + target, '--ld-path=' + str(linker),
+                '-nostdlib', '-static', '-Wl,-e,entry', obj, '-o', elf)
+            header = elf.read_bytes()[:20]
+            if header[:6] != b'\x7fELF\x02\x01' or struct.unpack('<H', header[18:20])[0] != 183:
+                raise RuntimeError('Packaged Clang --ld-path did not produce AArch64 ELF')
+
         # Verify the compiler backend in the shipped binary, then link its
         # output with the shipped LLD. No disassembler is needed in the archive.
         source.write_text('extern "C" void stop() { __builtin_trap(); }\n')
