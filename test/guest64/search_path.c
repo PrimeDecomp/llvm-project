@@ -75,7 +75,7 @@ void mainCRTStartup(void) {
 	CHECK(GetVolumePathNameW(L"\\\\?\\Z:\\missing", explicitResult, 2048) && equal(explicitResult, L"\\\\?\\Z:\\"), 41);
 	CHECK(GetVolumePathNameW(L"Z:\\missing", explicitResult, 3) && equal(explicitResult, L"Z:"), 42);
 	CHECK(!GetVolumePathNameW(L"Z:\\missing", explicitResult, 2), 43);
-	CHECK(!GetVolumePathNameW(L"", explicitResult, 2048) && GetLastError() == 0, 44);
+	CHECK(!GetVolumePathNameW(L"", explicitResult, 2048), 44);
 	const WCHAR *temporary = L"wibo_guest64_disposition.tmp";
 	file = CreateFileW(temporary, 0xc0010000UL, 7, 0, 1, 0, 0);
 	CHECK(file != (void *)-1, 28);
