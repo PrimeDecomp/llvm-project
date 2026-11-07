@@ -6,11 +6,18 @@
 #include "handles.h"
 #include "strutil.h"
 
+#include <unistd.h>
+
 namespace kernel32 {
 
 BOOL WINAPI GetConsoleMode(HANDLE hConsoleHandle, LPDWORD lpMode) {
 	HOST_CONTEXT_GUARD();
-	DEBUG_LOG("STUB: GetConsoleMode(%p)\n", hConsoleHandle);
+	DEBUG_LOG("GetConsoleMode(%p)\n", hConsoleHandle);
+	auto file = wibo::handles().getAs<FileObject>(hConsoleHandle);
+	if (!file || !isatty(file->fd)) {
+		setLastError(ERROR_INVALID_HANDLE);
+		return FALSE;
+	}
 	if (lpMode) {
 		*lpMode = 0;
 	}
@@ -47,8 +54,12 @@ BOOL WINAPI SetConsoleCtrlHandler(PHANDLER_ROUTINE HandlerRoutine, BOOL Add) {
 
 BOOL WINAPI GetConsoleScreenBufferInfo(HANDLE hConsoleOutput, CONSOLE_SCREEN_BUFFER_INFO *lpConsoleScreenBufferInfo) {
 	HOST_CONTEXT_GUARD();
-	DEBUG_LOG("STUB: GetConsoleScreenBufferInfo(%p, %p)\n", hConsoleOutput, lpConsoleScreenBufferInfo);
-	(void)hConsoleOutput;
+	DEBUG_LOG("GetConsoleScreenBufferInfo(%p, %p)\n", hConsoleOutput, lpConsoleScreenBufferInfo);
+	auto file = wibo::handles().getAs<FileObject>(hConsoleOutput);
+	if (!file || !isatty(file->fd)) {
+		setLastError(ERROR_INVALID_HANDLE);
+		return FALSE;
+	}
 	if (!lpConsoleScreenBufferInfo) {
 		setLastError(ERROR_INVALID_PARAMETER);
 		return FALSE;

@@ -36,3 +36,5 @@ GetFileAttributesW
 DeleteFileW
 GetVolumePathNameW
 SetFilePointer
+GetConsoleMode
+GetConsoleScreenBufferInfo
