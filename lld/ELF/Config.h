@@ -104,6 +104,9 @@ struct Configuration {
   llvm::StringRef ltoSampleProfile;
   llvm::StringRef mapFile;
   llvm::StringRef outputFile;
+  llvm::StringRef switchDebugLink;
+  bool switchEmbeddedScripts;
+  bool switchKeepHashedStrings;
   llvm::StringRef optRemarksFilename;
   llvm::StringRef optRemarksPasses;
   llvm::StringRef optRemarksFormat;

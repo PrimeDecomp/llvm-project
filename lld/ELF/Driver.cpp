@@ -1055,6 +1055,11 @@ static void readConfigs(opt::InputArgList &args) {
   if (config->nmagic || config->omagic)
     config->zRelro = false;
 
+  config->switchEmbeddedScripts = args.hasArg(OPT_switch_embedded_scripts);
+  config->switchKeepHashedStrings = args.hasArg(OPT_switch_keep_hashed_strings);
+  config->switchDebugLink = args.getLastArgValue(OPT_add_switch_debuglink);
+  if (args.hasArg(OPT_add_switch_debuglink) && config->switchDebugLink.empty())
+    error("--add-switch-debuglink requires a nonempty filename");
   std::tie(config->buildId, config->buildIdVector) = getBuildId(args);
 
   std::tie(config->androidPackDynRelocs, config->relrPackDynRelocs) =

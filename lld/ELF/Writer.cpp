@@ -363,6 +363,9 @@ template <class ELFT> void createSyntheticSections() {
       add(sec);
   }
 
+  if (!config->switchDebugLink.empty())
+    add(make<SwitchDebugLinkSection>(config->switchDebugLink));
+
   StringRef relaDynName = config->isRela ? ".rela.dyn" : ".rel.dyn";
 
   for (Partition &part : partitions) {

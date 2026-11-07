@@ -2419,6 +2419,10 @@ static void emitGlobalDtorWithCXAAtExit(CodeGenFunction &CGF,
                              cast<llvm::Constant>(dtor.getCallee()), dtorTy),
                          llvm::ConstantExpr::getBitCast(addr, AddrInt8PtrTy),
                          handle};
+  if (!TLS && CGF.CGM.getCodeGenOpts().EmitSwitchAtExit)
+    CGF.CGM.addAtExitEntry(cast<llvm::Constant>(args[0]),
+                           cast<llvm::Constant>(args[1]),
+                           cast<llvm::Constant>(args[2]));
   CGF.EmitNounwindRuntimeCall(atexit, args);
 }
 

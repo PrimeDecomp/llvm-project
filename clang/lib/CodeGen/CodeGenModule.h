@@ -395,6 +395,11 @@ private:
   /// emitted when the translation unit is complete.
   CtorList GlobalDtors;
 
+  struct AtExitEntry {
+    llvm::WeakTrackingVH Destructor, Object, Handle;
+  };
+  SmallVector<AtExitEntry, 4> AtExitEntries;
+
   /// An ordered map of canonical GlobalDecls to their mangled names.
   llvm::MapVector<GlobalDecl, StringRef> MangledDeclNames;
   llvm::StringMap<GlobalDecl, llvm::BumpPtrAllocator> Manglings;
@@ -1023,6 +1028,10 @@ public:
 
   /// Add a global to a list to be added to the llvm.used metadata.
   void addUsedGlobal(llvm::GlobalValue *GV);
+
+  void addAtExitEntry(llvm::Constant *Destructor, llvm::Constant *Object,
+                      llvm::Constant *Handle);
+  void emitAtExitEntries();
 
   /// Add a global to a list to be added to the llvm.compiler.used metadata.
   void addCompilerUsedGlobal(llvm::GlobalValue *GV);
