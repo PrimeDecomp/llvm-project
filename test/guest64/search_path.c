@@ -76,6 +76,9 @@ void mainCRTStartup(void) {
 	CHECK(GetVolumePathNameW(L"Z:\\missing", explicitResult, 3) && equal(explicitResult, L"Z:"), 42);
 	CHECK(!GetVolumePathNameW(L"Z:\\missing", explicitResult, 2), 43);
 	CHECK(!GetVolumePathNameW(L"", explicitResult, 2048), 44);
+#ifndef WIBO_WINE_BASELINE
+	CHECK(GetLastError() == 0, 59);
+#endif
 	const WCHAR *temporary = L"wibo_guest64_disposition.tmp";
 	file = CreateFileW(temporary, 0xc0010000UL, 7, 0, 1, 0, 0);
 	CHECK(file != (void *)-1, 28);
@@ -114,11 +117,18 @@ void mainCRTStartup(void) {
 		renameInfo.name[count] = renamed[count];
 		++count;
 	}
+#ifdef WIBO_WINE_BASELINE
+	// Wine 9 converts a NUL-terminated name and ignores the supplied lengths.
+	renameInfo.name[count] = 0;
+#else
 	renameInfo.name[count] = '!'; // The API takes a byte count, not a terminated string.
+#endif
 	renameInfo.replace = 0;
 	renameInfo.root = 0;
 	renameInfo.nameBytes = count * 2;
+#ifndef WIBO_WINE_BASELINE
 	CHECK(!SetFileInformationByHandle(file, 3, &renameInfo, 20) && GetLastError() == 87, 46);
+#endif
 	void *other = CreateFileW(renamed, 0xc0010000UL, 7, 0, 1, 0, 0);
 	CHECK(other != (void *)-1 && CloseHandle(other), 47);
 	CHECK(!SetFileInformationByHandle(file, 3, &renameInfo, sizeof(renameInfo)), 48);
