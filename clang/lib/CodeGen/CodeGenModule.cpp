@@ -437,6 +437,7 @@ void CodeGenModule::Release() {
   }
   EmitCtorList(GlobalCtors, "llvm.global_ctors");
   EmitCtorList(GlobalDtors, "llvm.global_dtors");
+  emitAtExitEntries();
   EmitGlobalAnnotations();
   EmitStaticExternCAliases();
   EmitDeferredUnusedCoverageMappings();
@@ -1161,6 +1162,30 @@ void CodeGenModule::AddGlobalDtor(llvm::Function *Dtor, int Priority) {
 
   // FIXME: Type coercion of void()* types.
   GlobalDtors.push_back(Structor(Priority, Dtor, nullptr));
+}
+
+void CodeGenModule::addAtExitEntry(llvm::Constant *Destructor,
+                                   llvm::Constant *Object,
+                                   llvm::Constant *Handle) {
+  AtExitEntries.push_back({Destructor, Object, Handle});
+}
+
+void CodeGenModule::emitAtExitEntries() {
+  if (AtExitEntries.empty())
+    return;
+  SmallVector<llvm::Constant *, 4> Entries;
+  for (const AtExitEntry &Entry : AtExitEntries) {
+    llvm::Constant *Fields[] = {cast<llvm::Constant>(Entry.Destructor),
+                                cast<llvm::Constant>(Entry.Object),
+                                cast<llvm::Constant>(Entry.Handle)};
+    Entries.push_back(llvm::ConstantStruct::getAnon(Fields));
+  }
+  auto *Type = llvm::ArrayType::get(Entries.front()->getType(), Entries.size());
+  auto *Table = new llvm::GlobalVariable(
+      getModule(), Type, false, llvm::GlobalValue::InternalLinkage,
+      llvm::ConstantArray::get(Type, Entries), "__horizon_atexit_entries");
+  Table->setSection(".atexit");
+  addUsedGlobal(Table);
 }
 
 void CodeGenModule::EmitCtorList(CtorList &Fns, const char *GlobalName) {

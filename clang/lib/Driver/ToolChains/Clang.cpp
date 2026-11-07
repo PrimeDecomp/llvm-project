@@ -5322,6 +5322,8 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       KernelOrKext)
     CmdArgs.push_back("-fno-use-cxa-atexit");
 
+  Args.AddLastArg(CmdArgs, options::OPT_femit_switch_atexit);
+
   if (Args.hasFlag(options::OPT_fregister_global_dtors_with_atexit,
                    options::OPT_fno_register_global_dtors_with_atexit,
                    RawTriple.isOSDarwin() && !KernelOrKext))

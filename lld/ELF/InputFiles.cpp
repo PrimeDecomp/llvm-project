@@ -10,6 +10,7 @@
 #include "Driver.h"
 #include "InputSection.h"
 #include "LinkerScript.h"
+#include "ScriptParser.h"
 #include "SymbolTable.h"
 #include "Symbols.h"
 #include "SyntheticSections.h"
@@ -571,8 +572,27 @@ void ObjFile<ELFT>::initializeSections(bool ignoreComdats) {
           warn(toString(this) + ": --icf=safe is incompatible with object "
                                 "files created using objcopy or ld -r");
       }
-      this->sections[i] = &InputSection::discarded;
-      continue;
+      StringRef name;
+      if (sec.sh_type == SHT_PROGBITS &&
+          (config->switchEmbeddedScripts || config->switchKeepHashedStrings))
+        name = getSectionName(sec);
+      if (name == ".nx_script" && config->switchEmbeddedScripts) {
+        ArrayRef<uint8_t> data = check(obj.getSectionContents(&sec));
+        StringRef text(reinterpret_cast<const char *>(data.data()),
+                       data.size());
+        // Assembly producers may include a terminating NUL.
+        if (text.endswith(StringRef("\0", 1)))
+          text = text.drop_back();
+        readLinkerScript(MemoryBufferRef(
+            text, saver.save(toString(this) + "(.nx_script)")));
+      }
+      bool keepHash =
+          config->switchKeepHashedStrings && sec.sh_type == SHT_PROGBITS &&
+          (name == ".nx.hashed_string" || name == ".nx.hashed_string_table");
+      if (!keepHash) {
+        this->sections[i] = &InputSection::discarded;
+        continue;
+      }
     }
 
     switch (sec.sh_type) {

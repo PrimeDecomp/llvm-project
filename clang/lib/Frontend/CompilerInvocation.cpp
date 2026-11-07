@@ -856,6 +856,12 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.PreserveAsmComments = !Args.hasArg(OPT_fno_preserve_as_comments);
   Opts.AssumeSaneOperatorNew = !Args.hasArg(OPT_fno_assume_sane_operator_new);
   Opts.ObjCAutoRefCountExceptions = Args.hasArg(OPT_fobjc_arc_exceptions);
+  Opts.EmitSwitchAtExit = Args.hasArg(OPT_femit_switch_atexit);
+  if (Opts.EmitSwitchAtExit && !Triple.isOSBinFormatELF()) {
+    Diags.Report(diag::err_drv_unsupported_opt_for_target)
+        << "-femit-switch-atexit" << TargetOpts.Triple;
+    Success = false;
+  }
   Opts.CXAAtExit = !Args.hasArg(OPT_fno_use_cxa_atexit);
   Opts.RegisterGlobalDtorsWithAtExit =
       Args.hasArg(OPT_fregister_global_dtors_with_atexit);

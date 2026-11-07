@@ -43,6 +43,18 @@ def check_linux_dependencies(root):
                     raise RuntimeError('libtinfo is not bundled for ' + str(path))
 
 
+def elf_sections(path):
+    data = path.read_bytes()
+    offset = struct.unpack_from('<Q', data, 40)[0]
+    size, count, names_index = struct.unpack_from('<HHH', data, 58)
+    headers = [struct.unpack_from('<IIQQQQIIQQ', data, offset + i * size)
+               for i in range(count)]
+    names_header = headers[names_index]
+    names = data[names_header[4]:names_header[4] + names_header[5]]
+    return {names[h[0]:].split(b'\0', 1)[0].decode():
+            (h[2], h[8], data[h[4]:h[4] + h[5]]) for h in headers}
+
+
 def smoke_test(root):
     suffix = '.exe' if os.name == 'nt' else ''
     clang = root / 'bin' / ('clang' + suffix)
@@ -89,6 +101,43 @@ def smoke_test(root):
             trailing = 0xd65f03c0 if flags == ('-O0',) else 0  # O0 retains RET.
             if binary.read_bytes() != struct.pack('<II', 0xe7ffdefe, trailing):
                 raise RuntimeError('Packaged compiler/linker lost the Switch trap encoding')
+
+
+        source.write_text('struct A { ~A(); }; A object;\n')
+        ir = work / 'atexit.ll'
+        for extra in ((), ('-femit-switch-atexit',)):
+            run(clang, '--target=aarch64-decomp-switch-elf', *extra,
+                '-S', '-emit-llvm', source, '-o', ir)
+            present = 'section ".atexit"' in ir.read_text()
+            if present != bool(extra):
+                raise RuntimeError('Unexpected static destructor metadata')
+
+        assembly = work / 'metadata.s'
+        assembly.write_text('.globl _start\n_start: ret\n'
+                            '.section .nx_script,"e",@progbits\n'
+                            '.asciz "embedded_symbol = 0x1234;"\n'
+                            '.section .nx.hashed_string,"e",@progbits\n'
+                            '.Lstr: .asciz "hello"\n'
+                            '.section .nx.hashed_string_table,"e",@progbits\n'
+                            '.quad 0x599d96bf032ea74b, 1, .Lstr\n')
+        run(clang, '--target=aarch64-decomp-switch-elf', '-c', assembly, '-o', obj)
+        run(linker, '-m', 'aarch64elf', '-e', '_start', obj, '-o', elf)
+        if any(name.startswith('.nx') for name in elf_sections(elf)):
+            raise RuntimeError('Compatibility metadata changed default linking')
+        run(linker, '-m', 'aarch64elf', '-e', 'embedded_symbol',
+            '--switch-embedded-scripts', '--switch-keep-hashed-strings',
+            '--add-switch-debuglink=probe.debug', obj, '-o', elf)
+        sections = elf_sections(elf)
+        expected = struct.pack('<II', 0, 11) + b'probe.debug'
+        if sections.get('.nx_debuglink') != (2, 4, expected):
+            raise RuntimeError('Incorrect allocated debug-link record')
+        if sections['.nx.hashed_string'][2] != b'hello\0':
+            raise RuntimeError('Hashed string was not retained')
+        if sections['.nx.hashed_string_table'][2][:16] != struct.pack(
+                '<QQ', 0x599d96bf032ea74b, 1):
+            raise RuntimeError('Hash table was not retained')
+        if struct.unpack_from('<Q', elf.read_bytes(), 24)[0] != 0x1234:
+            raise RuntimeError('Embedded linker script was not evaluated')
 
 
 

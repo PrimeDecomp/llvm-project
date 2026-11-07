@@ -27,6 +27,17 @@ def Bdynamic: F<"Bdynamic">, HelpText<"Link against shared libraries (default)">
 
 def Bstatic: F<"Bstatic">, HelpText<"Do not link against shared libraries">;
 
+def switch_embedded_scripts
+    : F<"switch-embedded-scripts">,
+      HelpText<"Read excluded .nx_script sections as linker scripts">;
+def switch_keep_hashed_strings
+    : F<"switch-keep-hashed-strings">,
+      HelpText<"Retain excluded .nx.hashed_string and .nx.hashed_string_table "
+               "sections">;
+def add_switch_debuglink
+    : J<"add-switch-debuglink=">,
+      HelpText<"Emit an allocated .nx_debuglink section naming the debug file">;
+
 def build_id: F<"build-id">, HelpText<"Alias for --build-id=fast">;
 
 def build_id_eq: J<"build-id=">, HelpText<"Generate build ID note">,

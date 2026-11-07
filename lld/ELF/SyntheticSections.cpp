@@ -53,6 +53,16 @@ namespace lld {
 namespace elf {
 constexpr size_t MergeNoTailSection::numShards;
 
+SwitchDebugLinkSection::SwitchDebugLinkSection(StringRef filename)
+    : SyntheticSection(SHF_ALLOC, SHT_PROGBITS, 4, ".nx_debuglink"),
+      filename(filename) {}
+
+void SwitchDebugLinkSection::writeTo(uint8_t *buf) {
+  write32(buf, 0);
+  write32(buf + 4, filename.size());
+  memcpy(buf + 8, filename.data(), filename.size());
+}
+
 static uint64_t readUint(uint8_t *buf) {
   return config->is64 ? read64(buf) : read32(buf);
 }

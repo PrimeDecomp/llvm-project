@@ -58,6 +58,16 @@ public:
   }
 };
 
+class SwitchDebugLinkSection final : public SyntheticSection {
+public:
+  explicit SwitchDebugLinkSection(StringRef filename);
+  size_t getSize() const override { return 8 + filename.size(); }
+  void writeTo(uint8_t *buf) override;
+
+private:
+  StringRef filename;
+};
+
 struct CieRecord {
   EhSectionPiece *cie = nullptr;
   std::vector<EhSectionPiece *> fdes;
