@@ -24,7 +24,11 @@
 namespace {
 
 constexpr size_t kVirtualAllocationGranularity = 64 * 1024;
+#ifdef WIBO_GUEST_64
+constexpr uintptr_t kProcessAddressLimit = 0x0000800000000000ULL;
+#else
 constexpr uintptr_t kProcessAddressLimit = 0x80000000;
+#endif
 constexpr uintptr_t kHighestUserAddress = 0x7FFEFFFF;
 constexpr uintptr_t kSharedUserDataAddr = 0x7FFE0000;
 

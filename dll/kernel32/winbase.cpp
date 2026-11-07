@@ -34,8 +34,54 @@
 #include <system_error>
 #include <unordered_map>
 #include <vector>
+#ifdef WIBO_GUEST_64
+#include <fstream>
+#endif
 
 namespace {
+
+#ifdef WIBO_GUEST_64
+template <typename Char> BOOL isBadString(const Char *str, UINT_PTR maxChars) {
+	if (!maxChars) {
+		return FALSE;
+	}
+	// Include host-backed buffers passed to CRT callbacks as well as guest allocations.
+	std::ifstream maps("/proc/self/maps");
+	std::vector<std::pair<uintptr_t, uintptr_t>> readable;
+	std::string line;
+	while (std::getline(maps, line)) {
+		unsigned long begin, end;
+		char access;
+		if (std::sscanf(line.c_str(), "%lx-%lx %c", &begin, &end, &access) != 3 || access != 'r') {
+			continue;
+		}
+		if (!readable.empty() && readable.back().second == begin) {
+			readable.back().second = end;
+		} else {
+			readable.emplace_back(begin, end);
+		}
+	}
+	uintptr_t address = reinterpret_cast<uintptr_t>(str);
+	for (auto [begin, end] : readable) {
+		if (address >= end) {
+			continue;
+		}
+		if (address < begin) {
+			return TRUE;
+		}
+		while (end - address >= sizeof(Char)) {
+			Char value;
+			std::memcpy(&value, reinterpret_cast<const void *>(address), sizeof(value));
+			if (!value || !--maxChars) {
+				return FALSE;
+			}
+			address += sizeof(Char);
+		}
+		return TRUE;
+	}
+	return TRUE;
+}
+#endif
 
 constexpr UINT GMEM_MOVEABLE = 0x0002;
 constexpr UINT GMEM_ZEROINIT = 0x0040;
@@ -63,7 +109,7 @@ struct MemorySnapshot {
 
 bool queryHostMemory(MemorySnapshot &out) {
 #if defined(__linux__)
-	struct sysinfo info {};
+	struct sysinfo info{};
 	if (sysinfo(&info) != 0) {
 		return false;
 	}
@@ -88,7 +134,7 @@ bool queryHostMemory(MemorySnapshot &out) {
 	if (host_page_size(mach_host_self(), &pageSize) != KERN_SUCCESS || pageSize == 0) {
 		return false;
 	}
-	vm_statistics64_data_t vmstat {};
+	vm_statistics64_data_t vmstat{};
 	mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
 	if (host_statistics64(mach_host_self(), HOST_VM_INFO64, reinterpret_cast<host_info64_t>(&vmstat), &count) !=
 		KERN_SUCCESS) {
@@ -99,7 +145,7 @@ bool queryHostMemory(MemorySnapshot &out) {
 	out.totalPhys = totalPhys;
 	out.availPhys = freePages * static_cast<uint64_t>(pageSize);
 
-	struct xsw_usage swap {};
+	struct xsw_usage swap{};
 	size_t swapSize = sizeof(swap);
 	if (sysctlbyname("vm.swapusage", &swap, &swapSize, nullptr, 0) == 0 && swapSize == sizeof(swap)) {
 		out.totalPageFile = swap.xsu_total;
@@ -786,6 +832,20 @@ BOOL WINAPI IsBadWritePtr(LPVOID lp, UINT_PTR ucb) {
 	}
 	return FALSE;
 }
+
+#ifdef WIBO_GUEST_64
+BOOL WINAPI IsBadStringPtrW(LPCWSTR lpsz, UINT_PTR ucchMax) {
+	HOST_CONTEXT_GUARD();
+	DEBUG_LOG("IsBadStringPtrW(%p, %zu)\n", lpsz, static_cast<size_t>(ucchMax));
+	return isBadString(lpsz, ucchMax);
+}
+
+BOOL WINAPI IsBadStringPtrA(LPCSTR lpsz, UINT_PTR ucchMax) {
+	HOST_CONTEXT_GUARD();
+	DEBUG_LOG("IsBadStringPtrA(%p, %zu)\n", lpsz, static_cast<size_t>(ucchMax));
+	return isBadString(lpsz, ucchMax);
+}
+#endif
 
 BOOL WINAPI GetComputerNameA(LPSTR lpBuffer, LPDWORD nSize) {
 	HOST_CONTEXT_GUARD();

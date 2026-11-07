@@ -12,6 +12,9 @@ __declspec(dllimport) DWORD TlsAlloc(void);
 __declspec(dllimport) int TlsSetValue(DWORD index, void *value);
 __declspec(dllimport) void *TlsGetValue(DWORD index);
 __declspec(dllimport) int TlsFree(DWORD index);
+__declspec(dllimport) HANDLE GetProcessHeap(void);
+__declspec(dllimport) void *HeapAlloc(HANDLE heap, DWORD flags, UINT_PTR size);
+__declspec(dllimport) int HeapFree(HANDLE heap, DWORD flags, void *memory);
 #define CHECK(expr, code)                                                                                              \
 	do {                                                                                                               \
 		if (!(expr))                                                                                                   \
@@ -40,5 +43,11 @@ void mainCRTStartup(void) {
 	DWORD written = 0;
 	CHECK(WriteFile(GetStdHandle((DWORD)-11), text, sizeof(text) - 1, &written, 0), 11);
 	CHECK(written == sizeof(text) - 1, 12);
+	UINT_PTR peb = *(UINT_PTR *)(teb + 0x60);
+	HANDLE heap = *(HANDLE *)(peb + 0x30);
+	CHECK(heap != 0 && heap == GetProcessHeap(), 13);
+	unsigned char *allocation = HeapAlloc(heap, 8, 32);
+	CHECK(allocation != 0 && allocation[0] == 0 && allocation[31] == 0, 14);
+	CHECK(HeapFree(heap, 0, allocation), 15);
 	ExitProcess(0);
 }

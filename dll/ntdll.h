@@ -31,6 +31,18 @@ using PRTL_OSVERSIONINFOW = RTL_OSVERSIONINFOW *;
 
 namespace ntdll {
 
+#ifdef WIBO_GUEST_64
+struct WineDebugChannel {
+	unsigned char flags;
+	char name[15];
+};
+
+unsigned char CDECL __wine_dbg_get_channel_flags(WineDebugChannel *channel);
+const char *CDECL __wine_dbg_strdup(const char *str);
+int CDECL __wine_dbg_output(const char *str);
+int CDECL __wine_dbg_header(int cls, WineDebugChannel *channel, const char *function);
+#endif
+
 PVOID CDECL memset(PVOID dest, int ch, SIZE_T count);
 NTSTATUS WINAPI NtReadFile(HANDLE FileHandle, HANDLE Event, PIO_APC_ROUTINE ApcRoutine, PVOID ApcContext,
 						   PIO_STATUS_BLOCK IoStatusBlock, PVOID Buffer, ULONG Length, PLARGE_INTEGER ByteOffset,

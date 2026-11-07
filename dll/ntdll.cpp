@@ -15,8 +15,10 @@
 #include "strutil.h"
 #include "types.h"
 
+#include <array>
 #include <cerrno>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <limits>
 #include <sys/stat.h>
@@ -25,6 +27,16 @@
 #include <optional>
 
 namespace {
+
+#ifdef WIBO_GUEST_64
+struct WineDebugState {
+	std::array<std::string, 16> strings;
+	size_t nextString = 0;
+	std::string output;
+};
+
+thread_local WineDebugState wineDebugState;
+#endif
 
 struct PROCESS_BASIC_INFORMATION {
 	NTSTATUS ExitStatus;
@@ -190,6 +202,55 @@ BOOL WINAPI ResetEvent(HANDLE hEvent);
 } // namespace kernel32
 
 namespace ntdll {
+
+#ifdef WIBO_GUEST_64
+unsigned char CDECL __wine_dbg_get_channel_flags(WineDebugChannel *channel) {
+	// External Wine CRT diagnostics follow wibo's -D switch.
+	unsigned char flags = wibo::debugEnabled ? 0x0f : 0;
+	if (channel->flags & 0x80) {
+		channel->flags = flags;
+	}
+	return flags;
+}
+
+const char *CDECL __wine_dbg_strdup(const char *str) {
+	auto &state = wineDebugState;
+	auto &copy = state.strings[state.nextString];
+	state.nextString = (state.nextString + 1) % state.strings.size();
+	copy = str;
+	return copy.c_str();
+}
+
+int CDECL __wine_dbg_output(const char *str) {
+	auto &output = wineDebugState.output;
+	size_t length = std::strlen(str);
+	output.append(str, length);
+	auto end = output.rfind('\n');
+	if (end != std::string::npos) {
+		std::fwrite(output.data(), 1, end + 1, stderr);
+		output.erase(0, end + 1);
+	}
+	return static_cast<int>(length);
+}
+
+int CDECL __wine_dbg_header(int cls, WineDebugChannel *channel, const char *function) {
+	if (cls < 0 || cls > 3 || !(__wine_dbg_get_channel_flags(channel) & (1u << cls))) {
+		return -1;
+	}
+	auto &output = wineDebugState.output;
+	if (!output.empty() || !function) {
+		return 0;
+	}
+	static constexpr const char *classes[] = {"fixme", "err", "warn", "trace"};
+	output = classes[cls];
+	output += ':';
+	output.append(channel->name, strnlen(channel->name, sizeof(channel->name)));
+	output += ':';
+	output += function;
+	output += ' ';
+	return static_cast<int>(output.size());
+}
+#endif
 
 constexpr LARGE_INTEGER FILE_WRITE_TO_END_OF_FILE = {.QuadPart = -1};
 constexpr LARGE_INTEGER FILE_USE_FILE_POINTER_POSITION = {.QuadPart = -2};

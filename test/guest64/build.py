@@ -16,16 +16,20 @@ out.mkdir(parents=True, exist_ok=True)
 def run(*command):
     subprocess.run([str(x) for x in command], check=True)
 
-for name in ('basic', 'dll', 'imports', 'tls', 'thread'):
+for name in ('basic', 'dll', 'imports', 'tls', 'thread', 'wine_debug', 'memory'):
     run(args.clang, '--target=x86_64-pc-windows-msvc', '-O2', '-ffreestanding',
         '-fno-stack-protector', '-c', source / (name + '.c'), '-o', out / (name + '.obj'))
 link = (args.lld, '-flavor', 'link', '/nodefaultlib', '/machine:x64')
 run(*link, '/dll', '/noentry', '/def:' + str(source / 'kernel32.def'),
     '/out:' + str(out / 'kernel32-imports.dll'), '/implib:' + str(out / 'kernel32.lib'))
+run(*link, '/dll', '/noentry', '/def:' + str(source / 'ntdll.def'),
+    '/out:' + str(out / 'ntdll-imports.dll'), '/implib:' + str(out / 'ntdll.lib'))
 run(*link, '/dll', '/entry:DllMain', '/base:0x140000000', '/def:' + str(source / 'dll.def'),
     '/out:' + str(out / 'guest64.dll'), '/implib:' + str(out / 'guest64.lib'), out / 'dll.obj')
-for name in ('basic', 'imports', 'tls', 'thread'):
+for name in ('basic', 'imports', 'tls', 'thread', 'wine_debug', 'memory'):
     libraries = [out / 'kernel32.lib']
+    if name == 'wine_debug':
+        libraries.append(out / 'ntdll.lib')
     if name == 'tls':
         libraries.append('/include:_tls_used')
     if name == 'imports':

@@ -444,7 +444,9 @@ typedef struct _PEB {
 	GUEST_PTR Reserved3[2];
 	GUEST_PTR Ldr;
 	GUEST_PTR ProcessParameters;
-	GUEST_PTR Reserved4[3];
+	GUEST_PTR SubSystemData;
+	HANDLE ProcessHeap;
+	GUEST_PTR FastPebLock;
 	GUEST_PTR AtlThunkSListPtr;
 	GUEST_PTR Reserved5;
 	ULONG Reserved6;
@@ -459,6 +461,7 @@ typedef struct _PEB {
 	ULONG SessionId;
 } PEB;
 typedef GUEST_PTR PPEB;
+static_assert(offsetof(PEB, ProcessHeap) == (sizeof(GUEST_PTR) == 8 ? 0x30 : 0x18));
 
 struct CLIENT_ID {
 	HANDLE UniqueProcess;

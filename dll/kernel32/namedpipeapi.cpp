@@ -12,6 +12,7 @@
 #include <cctype>
 #include <cerrno>
 #include <condition_variable>
+#include <cstring>
 #include <fcntl.h>
 #include <mutex>
 #include <optional>
@@ -469,6 +470,7 @@ HANDLE WINAPI CreateNamedPipeA(LPCSTR lpName, DWORD dwOpenMode, DWORD dwPipeMode
 	if (accessMode == PIPE_ACCESS_DUPLEX) {
 		if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) {
 			int savedErrno = errno;
+			DEBUG_LOG("CreateNamedPipeA: socketpair failed: %s (%d)\n", std::strerror(savedErrno), savedErrno);
 			return fail(wibo::winErrorFromErrno(savedErrno));
 		}
 		serverFd = fds[0];

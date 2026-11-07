@@ -73,7 +73,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Docker meta
         id: meta
@@ -110,7 +110,8 @@ jobs:
       - name: Tests
         run: >
           docker run --rm ${{ steps.docker-build.outputs.imageid }}
-          ctest --test-dir /wibo/build --output-on-failure
+          sh -c 'ctest --test-dir /wibo/build --output-on-failure ||
+          { WIBO_DEBUG=1 ctest --test-dir /wibo/build --rerun-failed --output-on-failure; exit 1; }'
 
       - name: Export binary
         uses: docker/build-push-action@v6
@@ -125,6 +126,7 @@ jobs:
             type=local,dest=dist
 
       - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request' && github.repository == 'decompals/wibo'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -178,7 +180,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Build wibo
         run: |
@@ -242,7 +244,7 @@ jobs:
         run: cmake --build build/win64 -j2
       - name: Wine baseline
         run: |
-          for test in basic imports tls thread; do
+          for test in basic imports tls thread wine_debug memory; do
             WINEDEBUG=-all /usr/lib/wine/wine64 "build/win64/test/guest64/$test.exe"
           done
       - name: Test

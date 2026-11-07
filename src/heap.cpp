@@ -1143,7 +1143,7 @@ VmStatus virtualQuery(const void *address, MEMORY_BASIC_INFORMATION *outInfo) {
 
 	const std::size_t pageSize = systemPageSize();
 	uintptr_t request = address ? reinterpret_cast<uintptr_t>(address) : 0;
-	if (request >= kTwoGB) {
+	if (request >= kGuestAddressLimit) {
 		return VmStatus::InvalidParameter;
 	}
 	uintptr_t pageBase = alignDown(request, pageSize);
@@ -1157,7 +1157,7 @@ VmStatus virtualQuery(const void *address, MEMORY_BASIC_INFORMATION *outInfo) {
 		if (next != g_virtualAllocations.end()) {
 			regionEnd = next->second.base;
 		} else {
-			regionEnd = kTwoGB;
+			regionEnd = kGuestAddressLimit;
 		}
 		if (regionEnd <= regionStart) {
 			regionEnd = regionStart + pageSize;

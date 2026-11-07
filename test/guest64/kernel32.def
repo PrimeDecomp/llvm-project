@@ -15,3 +15,10 @@ CreateThread
 WaitForSingleObject
 GetExitCodeThread
 CloseHandle
+GetProcessHeap
+HeapAlloc
+HeapFree
+VirtualQuery
+VirtualProtect
+IsBadStringPtrW
+IsBadStringPtrA

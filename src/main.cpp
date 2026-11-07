@@ -3,6 +3,7 @@
 #include "entry_trampolines.h"
 #include "files.h"
 #include "heap.h"
+#include "kernel32/heapapi.h"
 #include "modules.h"
 #include "processes.h"
 #include "setup.h"
@@ -335,6 +336,7 @@ int main(int argc, char **argv) {
 		perror("Failed to setup x86 segments and TEB");
 		return 1;
 	}
+	peb->ProcessHeap = kernel32::GetProcessHeap();
 
 	// Determine the guest program name
 	auto guestArgs = wibo::splitCommandLine(cmdLine.c_str());
