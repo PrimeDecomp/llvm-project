@@ -19,6 +19,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <sys/stat.h>
@@ -206,7 +207,8 @@ namespace ntdll {
 #ifdef WIBO_GUEST_64
 unsigned char CDECL __wine_dbg_get_channel_flags(WineDebugChannel *channel) {
 	// External Wine CRT diagnostics follow wibo's -D switch.
-	unsigned char flags = wibo::debugEnabled ? 0x0f : 0;
+	const char *wineDebug = std::getenv("WINEDEBUG");
+	unsigned char flags = wibo::debugEnabled && (!wineDebug || std::strcmp(wineDebug, "-all")) ? 0x0f : 0;
 	if (channel->flags & 0x80) {
 		channel->flags = flags;
 	}

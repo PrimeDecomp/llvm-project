@@ -47,6 +47,7 @@ Programs requiring a CRT need matching 64-bit DLLs beside the executable. Window
 API coverage remains limited; a successful PE load does not imply full application
 compatibility. In particular, x64 structured exception unwinding is not implemented.
 External Wine CRT debug channels follow wibo's `-D` switch.
+Set `WINEDEBUG=-all` to suppress those channels while retaining wibo's own trace.
 
 Freestanding Win64 fixtures require Clang and LLD, without MinGW or a Windows SDK:
 

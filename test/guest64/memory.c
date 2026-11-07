@@ -24,7 +24,12 @@ __declspec(dllimport) int IsBadStringPtrW(const WCHAR *str, SIZE_T max);
 	} while (0)
 void mainCRTStartup(void) {
 	WCHAR text[] = {'o', 'k', 0};
+#ifdef WIBO_WINE_BASELINE
+	// Wine 9 returns TRUE for NULL even with zero length; Microsoft's contract returns FALSE.
+	CHECK(IsBadStringPtrW(0, 0), 1);
+#else
 	CHECK(!IsBadStringPtrW(0, 0), 1);
+#endif
 	CHECK(IsBadStringPtrW(0, 1) && IsBadStringPtrW((WCHAR *)1, 1), 2);
 	CHECK(!IsBadStringPtrW(text, ~(SIZE_T)0), 3);
 	unsigned char *memory = VirtualAlloc((void *)0x200000000ULL, 8192, 0x3000, 4);
@@ -47,7 +52,11 @@ void mainCRTStartup(void) {
 	CHECK(VirtualFree(memory, 0, 0x8000), 16);
 	CHECK(IsBadStringPtrW(last, 1), 17);
 	CHECK(VirtualQuery(memory, &info, sizeof(info)) == sizeof(info) && info.state == 0x10000, 18);
-	CHECK(!IsBadStringPtrA("ok", ~(SIZE_T)0) && !IsBadStringPtrA(0, 0), 19);
+	CHECK(!IsBadStringPtrA("ok", ~(SIZE_T)0), 19);
+	CHECK(!IsBadStringPtrA("", 0), 21);
+#ifndef WIBO_WINE_BASELINE
+	CHECK(!IsBadStringPtrA(0, 0), 22);
+#endif
 	CHECK(IsBadStringPtrA(0, 1) && IsBadStringPtrA((char *)memory, 1), 20);
 	ExitProcess(0);
 }

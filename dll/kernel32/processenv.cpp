@@ -5,8 +5,10 @@
 #include "files.h"
 #include "heap.h"
 #include "internal.h"
+#include "minwinbase.h"
 #include "strutil.h"
 #include "types.h"
+#include "winbase.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -130,6 +132,84 @@ std::string convertEnvValueToHost(const std::string &name, const char *rawValue)
 } // namespace
 
 namespace kernel32 {
+
+DWORD WINAPI SearchPathW(LPCWSTR lpPath, LPCWSTR lpFileName, LPCWSTR lpExtension, DWORD nBufferLength, LPWSTR lpBuffer,
+						 GUEST_PTR *lpFilePart) {
+	HOST_CONTEXT_GUARD();
+	DEBUG_LOG("SearchPathW(%p, %p, %p, %u, %p, %p)\n", lpPath, lpFileName, lpExtension, nBufferLength, lpBuffer,
+			  lpFilePart);
+	if (!lpFileName || !*lpFileName || (nBufferLength && !lpBuffer)) {
+		setLastError(ERROR_INVALID_PARAMETER);
+		return 0;
+	}
+	std::string filename = wideStringToString(lpFileName);
+	bool hasPath = filename.find_first_of("/\\:") != std::string::npos;
+	auto lastSlash = filename.find_last_of("/\\");
+	auto dot = filename.find_last_of('.');
+	if (lpExtension && (dot == std::string::npos || (lastSlash != std::string::npos && dot < lastSlash))) {
+		filename += wideStringToString(lpExtension);
+	}
+	std::vector<std::filesystem::path> directories;
+	auto addPathList = [&](const std::string &paths) {
+		size_t start = 0;
+		while (start <= paths.size()) {
+			size_t end = paths.find(';', start);
+			if (end == std::string::npos) {
+				end = paths.size();
+			}
+			auto part = paths.substr(start, end - start);
+			directories.push_back(part.empty() ? std::filesystem::current_path()
+											   : files::pathFromWindows(part.c_str()));
+			if (end == paths.size()) {
+				break;
+			}
+			start = end + 1;
+		}
+	};
+	if (hasPath) {
+		directories.emplace_back();
+	} else if (lpPath) {
+		addPathList(wideStringToString(lpPath));
+	} else {
+		directories.push_back(wibo::guestExecutablePath.parent_path());
+		directories.push_back(std::filesystem::current_path());
+		char system[MAX_PATH], windows[MAX_PATH];
+		GetSystemDirectoryA(system, MAX_PATH);
+		GetWindowsDirectoryA(windows, MAX_PATH);
+		directories.push_back(files::pathFromWindows(system));
+		directories.push_back(files::pathFromWindows(windows) / "system");
+		directories.push_back(files::pathFromWindows(windows));
+		for (const char *name : {"WIBO_PATH", "WINEPATH", "PATH"}) {
+			if (const char *value = getenvCaseInsensitive(name)) {
+				addPathList(files::hostPathListToWindows(value));
+			}
+		}
+	}
+	for (const auto &directory : directories) {
+		auto candidate = hasPath ? files::pathFromWindows(filename.c_str())
+								 : files::pathFromWindows(files::pathToWindows(directory / filename).c_str());
+		std::error_code ec;
+		if (!std::filesystem::is_regular_file(candidate, ec)) {
+			continue;
+		}
+		auto path = stringToWideString(files::pathToWindows(files::canonicalPath(candidate)).c_str());
+		if (nBufferLength < path.size()) {
+			return static_cast<DWORD>(path.size());
+		}
+		std::copy(path.begin(), path.end(), lpBuffer);
+		if (lpFilePart) {
+			size_t offset = path.size() - 1;
+			while (offset && path[offset - 1] != '\\') {
+				--offset;
+			}
+			*lpFilePart = toGuestPtr(lpBuffer + offset);
+		}
+		DEBUG_LOG("SearchPathW -> %s\n", candidate.c_str());
+		return static_cast<DWORD>(path.size() - 1);
+	}
+	setLastError(ERROR_FILE_NOT_FOUND);
+	return 0;
+}
 
 GUEST_PTR WINAPI GetCommandLineA() {
 	HOST_CONTEXT_GUARD();

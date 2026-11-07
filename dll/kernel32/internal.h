@@ -17,6 +17,7 @@ struct FsObject : ObjectBase {
 	std::filesystem::path canonicalPath;
 	uint32_t shareAccess = FILE_SHARE_READ | FILE_SHARE_WRITE;
 	bool deletePending = false;
+	bool deleteOnClose = false;
 	bool closeOnDestroy = true;
 
 	~FsObject() override;

@@ -119,6 +119,18 @@ BOOL WINAPI GetModuleHandleExW(DWORD dwFlags, LPCWSTR lpModuleName, HMODULE *phM
 	return TRUE;
 }
 
+BOOL WINAPI GetModuleHandleExA(DWORD dwFlags, LPCSTR lpModuleName, HMODULE *phModule) {
+	HOST_CONTEXT_GUARD();
+	DEBUG_LOG("GetModuleHandleExA(%x, %p, %p)\n", dwFlags, lpModuleName, phModule);
+	if (!phModule || !lpModuleName || (dwFlags & GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS) ||
+		(dwFlags & ~GET_MODULE_HANDLE_EX_VALID_FLAGS) ||
+		((dwFlags & GET_MODULE_HANDLE_EX_FLAG_PIN) && (dwFlags & GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT))) {
+		return GetModuleHandleExW(dwFlags, reinterpret_cast<LPCWSTR>(lpModuleName), phModule);
+	}
+	auto name = stringToWideString(lpModuleName);
+	return GetModuleHandleExW(dwFlags, name.data(), phModule);
+}
+
 DWORD WINAPI GetModuleFileNameA(HMODULE hModule, LPSTR lpFilename, DWORD nSize) {
 	HOST_CONTEXT_GUARD();
 	DEBUG_LOG("GetModuleFileNameA(%p, %p, %u)\n", hModule, lpFilename, nSize);

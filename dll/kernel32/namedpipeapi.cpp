@@ -21,6 +21,10 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <vector>
+#ifdef __linux__
+#include <linux/net.h>
+#include <sys/syscall.h>
+#endif
 
 namespace kernel32 {
 
@@ -468,7 +472,20 @@ HANDLE WINAPI CreateNamedPipeA(LPCSTR lpName, DWORD dwOpenMode, DWORD dwPipeMode
 
 	int fds[2] = {-1, -1};
 	if (accessMode == PIPE_ACCESS_DUPLEX) {
-		if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) {
+		int result = socketpair(AF_UNIX, SOCK_STREAM, 0, fds);
+#if defined(__linux__) && defined(__i386__) && defined(SYS_socketpair)
+		// i386 libc and kernel builds can disagree on which socket entry point is available.
+		if (result != 0 && errno == ENOSYS) {
+			result = static_cast<int>(syscall(SYS_socketpair, AF_UNIX, SOCK_STREAM, 0, fds));
+		}
+#ifdef SYS_socketcall
+		if (result != 0 && errno == ENOSYS) {
+			unsigned long args[] = {AF_UNIX, SOCK_STREAM, 0, reinterpret_cast<unsigned long>(fds)};
+			result = static_cast<int>(syscall(SYS_socketcall, SYS_SOCKETPAIR, args));
+		}
+#endif
+#endif
+		if (result != 0) {
 			int savedErrno = errno;
 			DEBUG_LOG("CreateNamedPipeA: socketpair failed: %s (%d)\n", std::strerror(savedErrno), savedErrno);
 			return fail(wibo::winErrorFromErrno(savedErrno));

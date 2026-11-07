@@ -15,6 +15,8 @@ namespace {
 
 constexpr WORD PROCESSOR_ARCHITECTURE_INTEL = 0;
 constexpr DWORD PROCESSOR_INTEL_PENTIUM = 586;
+constexpr WORD PROCESSOR_ARCHITECTURE_AMD64 = 9;
+constexpr DWORD PROCESSOR_AMD_X8664 = 8664;
 
 constexpr uint64_t kUnixTimeZero = 11644473600ULL * 10000000ULL;
 constexpr DWORD kMajorVersion = 6;
@@ -42,9 +44,13 @@ void WINAPI GetSystemInfo(LPSYSTEM_INFO lpSystemInfo) {
 	}
 
 	std::memset(lpSystemInfo, 0, sizeof(*lpSystemInfo));
+#ifdef WIBO_GUEST_64
+	lpSystemInfo->wProcessorArchitecture = PROCESSOR_ARCHITECTURE_AMD64;
+	lpSystemInfo->dwProcessorType = PROCESSOR_AMD_X8664;
+#else
 	lpSystemInfo->wProcessorArchitecture = PROCESSOR_ARCHITECTURE_INTEL;
-	lpSystemInfo->dwOemId = lpSystemInfo->wProcessorArchitecture;
 	lpSystemInfo->dwProcessorType = PROCESSOR_INTEL_PENTIUM;
+#endif
 	lpSystemInfo->wProcessorLevel = 6; // Pentium
 
 	long pageSize = sysconf(_SC_PAGESIZE);
@@ -54,7 +60,7 @@ void WINAPI GetSystemInfo(LPSYSTEM_INFO lpSystemInfo) {
 	lpSystemInfo->dwPageSize = static_cast<DWORD>(pageSize);
 
 	lpSystemInfo->lpMinimumApplicationAddress = toGuestPtr(reinterpret_cast<void *>(0x00010000));
-#ifdef _WIN64
+#ifdef WIBO_GUEST_64
 	lpSystemInfo->lpMaximumApplicationAddress = toGuestPtr(reinterpret_cast<void *>(0x00007FFFFFFEFFFFull));
 #else
 	lpSystemInfo->lpMaximumApplicationAddress = toGuestPtr(reinterpret_cast<void *>(0x7FFEFFFF));
@@ -70,6 +76,10 @@ void WINAPI GetSystemInfo(LPSYSTEM_INFO lpSystemInfo) {
 
 	lpSystemInfo->dwAllocationGranularity = 0x10000;
 }
+
+#ifdef WIBO_GUEST_64
+void WINAPI GetNativeSystemInfo(LPSYSTEM_INFO lpSystemInfo) { GetSystemInfo(lpSystemInfo); }
+#endif
 
 void WINAPI GetSystemTime(LPSYSTEMTIME lpSystemTime) {
 	HOST_CONTEXT_GUARD();

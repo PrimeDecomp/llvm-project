@@ -1,8 +1,17 @@
 typedef unsigned long long UINT_PTR;
 typedef unsigned long DWORD;
 typedef void *HANDLE;
+typedef struct {
+	unsigned short architecture, reserved;
+	DWORD pageSize;
+	UINT_PTR minimumAddress, maximumAddress, processorMask;
+	DWORD processors, processorType, allocationGranularity;
+	unsigned short processorLevel, processorRevision;
+} SystemInfo;
+__declspec(dllimport) void GetNativeSystemInfo(SystemInfo *info);
 __declspec(dllimport) void ExitProcess(unsigned int code);
 __declspec(dllimport) HANDLE GetModuleHandleA(const char *name);
+__declspec(dllimport) int GetModuleHandleExA(DWORD flags, const char *name, HANDLE *module);
 __declspec(dllimport) void *GetProcAddress(HANDLE module, const char *name);
 __declspec(dllimport) HANDLE GetStdHandle(DWORD which);
 __declspec(dllimport) int WriteFile(HANDLE file, const void *buffer, DWORD size, DWORD *written, void *overlapped);
@@ -49,5 +58,14 @@ void mainCRTStartup(void) {
 	unsigned char *allocation = HeapAlloc(heap, 8, 32);
 	CHECK(allocation != 0 && allocation[0] == 0 && allocation[31] == 0, 14);
 	CHECK(HeapFree(heap, 0, allocation), 15);
+	HANDLE found = 0;
+	CHECK(GetModuleHandleExA(2, "kernel32.dll", &found) && found == kernel, 16);
+	CHECK(GetModuleHandleExA(6, (const char *)&mainCRTStartup, &found) && found == module, 17);
+	CHECK(!GetModuleHandleExA(3, (const char *)1, &found) && found == 0, 18);
+	CHECK(GetModuleHandleExA(2, 0, &found) && found == module, 19);
+	SystemInfo info;
+	GetNativeSystemInfo(&info);
+	CHECK(info.architecture == 9 && info.maximumAddress > 0xffffffffULL, 20);
+	CHECK(info.pageSize && info.processors && info.processorMask && info.allocationGranularity == 65536, 21);
 	ExitProcess(0);
 }

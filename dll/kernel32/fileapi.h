@@ -58,11 +58,31 @@ constexpr DWORD FILE_TYPE_PIPE = 0x0003;
 
 constexpr DWORD INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF;
 constexpr DWORD INVALID_FILE_SIZE = 0xFFFFFFFF;
+constexpr DWORD VOLUME_NAME_DOS = 0;
+constexpr DWORD VOLUME_NAME_GUID = 1;
+constexpr DWORD VOLUME_NAME_NT = 2;
+constexpr DWORD VOLUME_NAME_NONE = 4;
+constexpr DWORD FILE_NAME_OPENED = 8;
+
+struct FILE_RENAME_INFO {
+	BYTE ReplaceIfExists;
+	GUEST_PTR RootDirectory;
+	DWORD FileNameLength;
+	WCHAR FileName[1];
+};
+static_assert(offsetof(FILE_RENAME_INFO, FileName) == (sizeof(GUEST_PTR) == 8 ? 20 : 12));
+constexpr DWORD FileRenameInfo = 3;
+constexpr DWORD FileDispositionInfo = 4;
 
 namespace kernel32 {
 
+BOOL WINAPI SetFileInformationByHandle(HANDLE hFile, DWORD fileInformationClass, LPVOID lpFileInformation,
+									   DWORD dwBufferSize);
+
+BOOL WINAPI GetVolumePathNameW(LPCWSTR lpszFileName, LPWSTR lpszVolumePathName, DWORD cchBufferLength);
 DWORD WINAPI GetFullPathNameA(LPCSTR lpFileName, DWORD nBufferLength, LPSTR lpBuffer, GUEST_PTR *lpFilePart);
 DWORD WINAPI GetFullPathNameW(LPCWSTR lpFileName, DWORD nBufferLength, LPWSTR lpBuffer, GUEST_PTR *lpFilePart);
+DWORD WINAPI GetFinalPathNameByHandleW(HANDLE hFile, LPWSTR lpszFilePath, DWORD cchFilePath, DWORD dwFlags);
 DWORD WINAPI GetShortPathNameA(LPCSTR lpszLongPath, LPSTR lpszShortPath, DWORD cchBuffer);
 DWORD WINAPI GetShortPathNameW(LPCWSTR lpszLongPath, LPWSTR lpszShortPath, DWORD cchBuffer);
 UINT WINAPI GetTempFileNameA(LPCSTR lpPathName, LPCSTR lpPrefixString, UINT uUnique, LPSTR lpTempFileName);

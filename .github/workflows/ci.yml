@@ -244,7 +244,8 @@ jobs:
         run: cmake --build build/win64 -j2
       - name: Wine baseline
         run: |
-          for test in basic imports tls thread wine_debug memory; do
+          for test in basic imports tls thread wine_debug memory_wine search_path; do
+            echo "Wine baseline: $test"
             WINEDEBUG=-all /usr/lib/wine/wine64 "build/win64/test/guest64/$test.exe"
           done
       - name: Test

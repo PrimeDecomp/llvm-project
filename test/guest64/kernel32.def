@@ -2,6 +2,7 @@ LIBRARY kernel32.dll
 EXPORTS
 ExitProcess
 GetModuleHandleA
+GetModuleHandleExA
 GetProcAddress
 GetStdHandle
 WriteFile
@@ -22,3 +23,15 @@ VirtualQuery
 VirtualProtect
 IsBadStringPtrW
 IsBadStringPtrA
+SearchPathW
+GetModuleFileNameW
+GetLastError
+CreateFileW
+GetFinalPathNameByHandleW
+GetFileType
+GetFileInformationByHandle
+GetNativeSystemInfo
+SetFileInformationByHandle
+GetFileAttributesW
+DeleteFileW
+GetVolumePathNameW

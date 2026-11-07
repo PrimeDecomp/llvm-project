@@ -23,7 +23,7 @@ kernel32::FsObject::~FsObject() {
 	if (fd >= 0 && closeOnDestroy) {
 		close(fd);
 	}
-	if (deletePending && !canonicalPath.empty()) {
+	if ((deletePending || deleteOnClose) && !canonicalPath.empty()) {
 		if (unlink(canonicalPath.c_str()) != 0) {
 			perror("Failed to delete file on close");
 		}

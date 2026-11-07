@@ -22,6 +22,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <filesystem>
+#include <limits.h>
 #include <mutex>
 #include <optional>
 #include <random>
@@ -753,6 +754,49 @@ BOOL WINAPI GetFileAttributesExW(LPCWSTR lpFileName, GET_FILEEX_INFO_LEVELS fInf
 	return GetFileAttributesExA(fileName.c_str(), fInfoLevelId, lpFileInformation);
 }
 
+BOOL WINAPI GetVolumePathNameW(LPCWSTR lpszFileName, LPWSTR lpszVolumePathName, DWORD cchBufferLength) {
+	HOST_CONTEXT_GUARD();
+	DEBUG_LOG("GetVolumePathNameW(%p, %p, %u)\n", lpszFileName, lpszVolumePathName, cchBufferLength);
+	if (!lpszFileName || !lpszVolumePathName) {
+		setLastError(ERROR_INVALID_PARAMETER);
+		return FALSE;
+	}
+	std::string path = wideStringToString(lpszFileName);
+	if (path.empty()) {
+		setLastError(ERROR_SUCCESS);
+		return FALSE;
+	}
+	std::replace(path.begin(), path.end(), '/', '\\');
+	std::string prefix;
+	if (path.starts_with("\\\\?\\") || path.starts_with("\\\\.\\")) {
+		prefix = path.substr(0, 4);
+		path.erase(0, 4);
+	}
+	// Wibo exposes the host filesystem through C: and Z:, with no nested volumes.
+	std::string root = "C:\\";
+	if (path.size() >= 2 && path[1] == ':') {
+		char drive = static_cast<char>(std::toupper(static_cast<unsigned char>(path[0])));
+		if (drive != 'C' && drive != 'Z') {
+			setLastError(ERROR_PATH_NOT_FOUND);
+			return FALSE;
+		}
+		root = prefix + drive + ":\\";
+	} else if (!prefix.empty() || path.starts_with("\\\\")) {
+		setLastError(ERROR_NOT_SUPPORTED);
+		return FALSE;
+	}
+	if (cchBufferLength == root.size()) {
+		root.pop_back();
+	}
+	if (cchBufferLength <= root.size()) {
+		setLastError(ERROR_FILENAME_EXCED_RANGE);
+		return FALSE;
+	}
+	auto wide = stringToWideString(root.c_str());
+	std::copy(wide.begin(), wide.end(), lpszVolumePathName);
+	return TRUE;
+}
+
 UINT WINAPI GetDriveTypeA(LPCSTR lpRootPathName) {
 	HOST_CONTEXT_GUARD();
 	DEBUG_LOG("STUB: GetDriveTypeA(%s)\n", lpRootPathName ? lpRootPathName : "(null)");
@@ -1239,7 +1283,7 @@ HANDLE WINAPI CreateFileA(LPCSTR lpFileName, DWORD dwDesiredAccess, DWORD dwShar
 	}
 	fsObject->canonicalPath = std::move(canonicalPath);
 	fsObject->shareAccess = shareMask;
-	fsObject->deletePending = deleteOnClose;
+	fsObject->deleteOnClose = deleteOnClose;
 
 	uint32_t handleFlags = 0;
 	if (lpSecurityAttributes && lpSecurityAttributes->bInheritHandle) {
@@ -1702,6 +1746,70 @@ BOOL WINAPI SetFileTime(HANDLE hFile, const FILETIME *lpCreationTime, const FILE
 	return TRUE;
 }
 
+BOOL WINAPI SetFileInformationByHandle(HANDLE hFile, DWORD fileInformationClass, LPVOID lpFileInformation,
+									   DWORD dwBufferSize) {
+	HOST_CONTEXT_GUARD();
+	DEBUG_LOG("SetFileInformationByHandle(%p, %u, %p, %u)\n", hFile, fileInformationClass, lpFileInformation,
+			  dwBufferSize);
+	HandleMeta meta{};
+	auto file = wibo::handles().getAs<FileObject>(hFile, &meta);
+	if (!file || !file->valid() || file->isPipe) {
+		setLastError(ERROR_INVALID_HANDLE);
+		return FALSE;
+	}
+	if (fileInformationClass != FileDispositionInfo && fileInformationClass != FileRenameInfo) {
+		setLastError(ERROR_NOT_SUPPORTED);
+		return FALSE;
+	}
+	if (!lpFileInformation || dwBufferSize < sizeof(BYTE)) {
+		setLastError(ERROR_INVALID_PARAMETER);
+		return FALSE;
+	}
+	if (!containsAny(meta.grantedAccess, DELETE)) {
+		setLastError(ERROR_ACCESS_DENIED);
+		return FALSE;
+	}
+	std::lock_guard lock(file->m);
+	if (fileInformationClass == FileDispositionInfo) {
+		file->deletePending = *static_cast<const BYTE *>(lpFileInformation) != 0;
+		return TRUE;
+	}
+	constexpr size_t nameOffset = offsetof(FILE_RENAME_INFO, FileName);
+	if (dwBufferSize < nameOffset) {
+		setLastError(ERROR_INVALID_PARAMETER);
+		return FALSE;
+	}
+	auto *info = static_cast<const FILE_RENAME_INFO *>(lpFileInformation);
+	if (!info->FileNameLength || info->FileNameLength % sizeof(WCHAR) ||
+		info->FileNameLength > dwBufferSize - nameOffset) {
+		setLastError(ERROR_INVALID_PARAMETER);
+		return FALSE;
+	}
+	std::vector<WCHAR> name(info->FileName, info->FileName + info->FileNameLength / sizeof(WCHAR));
+	name.push_back(0);
+	auto windowsName = wideStringToString(name.data());
+	if (windowsName.empty() || windowsName[0] == ':') {
+		setLastError(ERROR_NOT_SUPPORTED);
+		return FALSE;
+	}
+	auto destination = files::pathFromWindows(windowsName.c_str());
+	if (info->RootDirectory && destination.is_relative()) {
+		auto directory = wibo::handles().getAs<DirectoryObject>(static_cast<HANDLE>(info->RootDirectory));
+		if (!directory || !directory->valid()) {
+			setLastError(ERROR_INVALID_HANDLE);
+			return FALSE;
+		}
+		destination = directory->canonicalPath / destination;
+	}
+	std::string from = files::pathToWindows(file->canonicalPath);
+	std::string to = files::pathToWindows(destination);
+	if (!MoveFileExA(from.c_str(), to.c_str(), info->ReplaceIfExists ? MOVEFILE_REPLACE_EXISTING : 0)) {
+		return FALSE;
+	}
+	file->canonicalPath = files::canonicalPath(destination);
+	return TRUE;
+}
+
 BOOL WINAPI GetFileInformationByHandle(HANDLE hFile, LPBY_HANDLE_FILE_INFORMATION lpFileInformation) {
 	HOST_CONTEXT_GUARD();
 	DEBUG_LOG("GetFileInformationByHandle(%p, %p)\n", hFile, lpFileInformation);
@@ -1710,7 +1818,7 @@ BOOL WINAPI GetFileInformationByHandle(HANDLE hFile, LPBY_HANDLE_FILE_INFORMATIO
 		return FALSE;
 	}
 	HandleMeta meta{};
-	auto file = wibo::handles().getAs<FileObject>(hFile, &meta);
+	auto file = wibo::handles().getAs<FsObject>(hFile, &meta);
 	if (!file || !file->valid()) {
 		setLastError(ERROR_INVALID_HANDLE);
 		return FALSE;
@@ -1731,19 +1839,19 @@ BOOL WINAPI GetFileInformationByHandle(HANDLE hFile, LPBY_HANDLE_FILE_INFORMATIO
 	lpFileInformation->ftCreationTime = kDefaultFileInformationTime;
 	lpFileInformation->ftLastAccessTime = kDefaultFileInformationTime;
 	lpFileInformation->ftLastWriteTime = kDefaultFileInformationTime;
-	lpFileInformation->dwVolumeSerialNumber = 0;
+	lpFileInformation->dwVolumeSerialNumber = static_cast<DWORD>(st.st_dev);
 	lpFileInformation->nFileSizeHigh = static_cast<DWORD>(static_cast<uint64_t>(st.st_size) >> 32);
 	lpFileInformation->nFileSizeLow = static_cast<DWORD>(st.st_size & 0xFFFFFFFFULL);
-	lpFileInformation->nNumberOfLinks = 1;
-	lpFileInformation->nFileIndexHigh = 0;
-	lpFileInformation->nFileIndexLow = 0;
+	lpFileInformation->nNumberOfLinks = static_cast<DWORD>(st.st_nlink);
+	lpFileInformation->nFileIndexHigh = static_cast<DWORD>(static_cast<uint64_t>(st.st_ino) >> 32);
+	lpFileInformation->nFileIndexLow = static_cast<DWORD>(st.st_ino);
 	return TRUE;
 }
 
 DWORD WINAPI GetFileType(HANDLE hFile) {
 	HOST_CONTEXT_GUARD();
 	DEBUG_LOG("GetFileType(%p) ", hFile);
-	auto file = wibo::handles().getAs<FileObject>(hFile);
+	auto file = wibo::handles().getAs<FsObject>(hFile);
 	if (!file || !file->valid()) {
 		setLastError(ERROR_INVALID_HANDLE);
 		DEBUG_LOG("-> ERROR_INVALID_HANDLE\n");
@@ -1767,6 +1875,62 @@ DWORD WINAPI GetFileType(HANDLE hFile) {
 	}
 	DEBUG_LOG("-> %u\n", type);
 	return type;
+}
+
+DWORD WINAPI GetFinalPathNameByHandleW(HANDLE hFile, LPWSTR lpszFilePath, DWORD cchFilePath, DWORD dwFlags) {
+	HOST_CONTEXT_GUARD();
+	DEBUG_LOG("GetFinalPathNameByHandleW(%p, %p, %u, %#x)\n", hFile, lpszFilePath, cchFilePath, dwFlags);
+	DWORD volume = dwFlags & ~FILE_NAME_OPENED;
+	if ((volume != VOLUME_NAME_DOS && volume != VOLUME_NAME_GUID && volume != VOLUME_NAME_NT &&
+		 volume != VOLUME_NAME_NONE) ||
+		(cchFilePath && !lpszFilePath)) {
+		setLastError(ERROR_INVALID_PARAMETER);
+		return 0;
+	}
+	if ((dwFlags & FILE_NAME_OPENED) || volume == VOLUME_NAME_GUID || volume == VOLUME_NAME_NT) {
+		setLastError(ERROR_NOT_SUPPORTED);
+		return 0;
+	}
+	auto file = wibo::handles().getAs<FsObject>(hFile);
+	if (!file || !file->valid()) {
+		setLastError(ERROR_INVALID_HANDLE);
+		return 0;
+	}
+	std::lock_guard lock(file->m);
+	std::filesystem::path hostPath;
+#ifdef __linux__
+	std::error_code ec;
+	hostPath = std::filesystem::read_symlink("/proc/self/fd/" + std::to_string(file->fd), ec);
+	if (ec) {
+		setLastError(wibo::winErrorFromErrno(ec.value()));
+		return 0;
+	}
+#elif defined(__APPLE__)
+	char path[PATH_MAX];
+	if (fcntl(file->fd, F_GETPATH, path) == -1) {
+		setLastErrorFromErrno();
+		return 0;
+	}
+	hostPath = path;
+#else
+	hostPath = file->canonicalPath;
+#endif
+	if (!hostPath.is_absolute()) {
+		setLastError(ERROR_INVALID_HANDLE);
+		return 0;
+	}
+	auto path = files::pathToWindows(hostPath);
+	if (volume == VOLUME_NAME_NONE) {
+		path.erase(0, 2);
+	} else {
+		path.insert(0, "\\\\?\\");
+	}
+	auto wide = stringToWideString(path.c_str());
+	if (cchFilePath < wide.size()) {
+		return static_cast<DWORD>(wide.size());
+	}
+	std::copy(wide.begin(), wide.end(), lpszFilePath);
+	return static_cast<DWORD>(wide.size() - 1);
 }
 
 DWORD WINAPI GetFullPathNameA(LPCSTR lpFileName, DWORD nBufferLength, LPSTR lpBuffer, GUEST_PTR *lpFilePart) {
