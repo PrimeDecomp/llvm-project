@@ -1,0 +1,5 @@
+LIBRARY guest64.dll
+EXPORTS
+CheckArguments @7 NONAME
+CheckFloats @8
+CheckCallback @9
