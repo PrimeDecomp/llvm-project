@@ -248,5 +248,6 @@ jobs:
             echo "Wine baseline: $test"
             WINEDEBUG=-all /usr/lib/wine/wine64 "build/win64/test/guest64/$test.exe"
           done
+          WINEDEBUG=-all python3 test/guest64/redirect.py /usr/lib/wine/wine64 build/win64/test/guest64/redirect.exe
       - name: Test
         run: ctest --test-dir build/win64 --output-on-failure

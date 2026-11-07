@@ -61,7 +61,7 @@ void mainCRTStartup(void) {
 	HANDLE found = 0;
 	CHECK(GetModuleHandleExA(2, "kernel32.dll", &found) && found == kernel, 16);
 	CHECK(GetModuleHandleExA(6, (const char *)&mainCRTStartup, &found) && found == module, 17);
-	CHECK(!GetModuleHandleExA(3, (const char *)1, &found) && found == 0, 18);
+	CHECK(!GetModuleHandleExA(3, "kernel32.dll", &found) && found == 0, 18);
 	CHECK(GetModuleHandleExA(2, 0, &found) && found == module, 19);
 	SystemInfo info;
 	GetNativeSystemInfo(&info);

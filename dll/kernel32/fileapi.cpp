@@ -1906,12 +1906,12 @@ DWORD WINAPI GetFinalPathNameByHandleW(HANDLE hFile, LPWSTR lpszFilePath, DWORD 
 		return 0;
 	}
 #elif defined(__APPLE__)
-	char path[PATH_MAX];
-	if (fcntl(file->fd, F_GETPATH, path) == -1) {
+	char nativePath[PATH_MAX];
+	if (fcntl(file->fd, F_GETPATH, nativePath) == -1) {
 		setLastErrorFromErrno();
 		return 0;
 	}
-	hostPath = path;
+	hostPath = nativePath;
 #else
 	hostPath = file->canonicalPath;
 #endif

@@ -10,6 +10,7 @@
 #include <csignal>
 #include <cstddef>
 #include <cstdio>
+#include <fcntl.h>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -381,11 +382,13 @@ void init() {
 	stdinHandle = handles.alloc(std::move(stdinObject), FILE_GENERIC_READ, 0);
 	auto stdoutObject = make_pin<FileObject>(STDOUT_FILENO);
 	stdoutObject->closeOnDestroy = false;
-	stdoutObject->appendOnly = true;
+	int stdoutFlags = fcntl(STDOUT_FILENO, F_GETFL);
+	stdoutObject->appendOnly = stdoutFlags >= 0 && (stdoutFlags & O_APPEND);
 	stdoutHandle = handles.alloc(std::move(stdoutObject), FILE_GENERIC_WRITE, 0);
 	auto stderrObject = make_pin<FileObject>(STDERR_FILENO);
 	stderrObject->closeOnDestroy = false;
-	stderrObject->appendOnly = true;
+	int stderrFlags = fcntl(STDERR_FILENO, F_GETFL);
+	stderrObject->appendOnly = stderrFlags >= 0 && (stderrFlags & O_APPEND);
 	stderrHandle = handles.alloc(std::move(stderrObject), FILE_GENERIC_WRITE, 0);
 }
 

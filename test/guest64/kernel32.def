@@ -35,3 +35,4 @@ SetFileInformationByHandle
 GetFileAttributesW
 DeleteFileW
 GetVolumePathNameW
+SetFilePointer
