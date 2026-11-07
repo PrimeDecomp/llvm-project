@@ -129,6 +129,10 @@ static cl::opt<bool> SpeculateOneExpensiveInst(
     cl::desc("Allow exactly one expensive instruction to be speculatively "
              "executed"));
 
+static cl::opt<bool> FoldBranchUnalignedLoads(
+    "simplifycfg-fold-branch-unaligned-loads", cl::Hidden, cl::init(true),
+    cl::desc("Allow folding branches by speculating loads below ABI alignment"));
+
 static cl::opt<unsigned> MaxSpeculationDepth(
     "max-speculation-depth", cl::Hidden, cl::init(10),
     cl::desc("Limit maximum recursion depth when calculating costs of "
@@ -2646,6 +2650,15 @@ bool llvm::FoldBranchToCommonDest(BranchInst *BI, MemorySSAUpdater *MSSAU,
       continue;
     if (!I->hasOneUse() || !isSafeToSpeculativelyExecute(&*I))
       return false;
+    if (!FoldBranchUnalignedLoads) {
+      if (auto *LI = dyn_cast<LoadInst>(&*I)) {
+        unsigned Alignment = LI->getAlignment();
+        if (Alignment &&
+            Alignment < BB->getModule()->getDataLayout().getABITypeAlignment(
+                            LI->getType()))
+          return false;
+      }
+    }
     // I has only one use and can be executed unconditionally.
     Instruction *User = dyn_cast<Instruction>(I->user_back());
     if (User == nullptr || User->getParent() != BB)
