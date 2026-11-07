@@ -96,6 +96,10 @@ static cl::opt<bool> ControlFlowHoisting(
     "licm-control-flow-hoisting", cl::Hidden, cl::init(false),
     cl::desc("Enable control flow (and PHI) hoisting in LICM"));
 
+static cl::opt<bool> SpeculateUnalignedLoads(
+    "licm-speculate-unaligned-loads", cl::Hidden, cl::init(true),
+    cl::desc("Allow speculative LICM load motion without proven ABI alignment"));
+
 static cl::opt<uint32_t> MaxNumUsesTraversed(
     "licm-max-num-uses-traversed", cl::Hidden, cl::init(8),
     cl::desc("Max num uses visited for identifying load "
@@ -1722,7 +1726,20 @@ static bool isSafeToExecuteUnconditionally(Instruction &Inst,
                                            const LoopSafetyInfo *SafetyInfo,
                                            OptimizationRemarkEmitter *ORE,
                                            const Instruction *CtxI) {
-  if (isSafeToSpeculativelyExecute(&Inst, CtxI, DT))
+  bool SafeToSpeculate = isSafeToSpeculativelyExecute(&Inst, CtxI, DT);
+  // Optionally require ABI alignment for speculative load motion. Loads that
+  // are guaranteed to execute may still move through the check below.
+  if (SafeToSpeculate && !SpeculateUnalignedLoads) {
+    if (auto *LI = dyn_cast<LoadInst>(&Inst)) {
+      const DataLayout &DL = LI->getModule()->getDataLayout();
+      unsigned Alignment =
+          std::max(LI->getAlignment(), DL.getABITypeAlignment(LI->getType()));
+      SafeToSpeculate = isDereferenceableAndAlignedPointer(
+          LI->getPointerOperand(), LI->getType(), MaybeAlign(Alignment),
+          DL, CtxI, DT);
+    }
+  }
+  if (SafeToSpeculate)
     return true;
 
   bool GuaranteedToExecute =
