@@ -81,6 +81,14 @@ void WINAPI GetSystemInfo(LPSYSTEM_INFO lpSystemInfo) {
 void WINAPI GetNativeSystemInfo(LPSYSTEM_INFO lpSystemInfo) { GetSystemInfo(lpSystemInfo); }
 #endif
 
+BOOL WINAPI GetLogicalProcessorInformationEx(DWORD RelationshipType, LPVOID Buffer, PDWORD ReturnedLength) {
+	HOST_CONTEXT_GUARD();
+	DEBUG_LOG("STUB: GetLogicalProcessorInformationEx(%u, %p, %p)\n", RelationshipType, Buffer, ReturnedLength);
+	// Let callers use their fallback until processor topology is implemented.
+	setLastError(ERROR_CALL_NOT_IMPLEMENTED);
+	return FALSE;
+}
+
 void WINAPI GetSystemTime(LPSYSTEMTIME lpSystemTime) {
 	HOST_CONTEXT_GUARD();
 	DEBUG_LOG("GetSystemTime(%p)\n", lpSystemTime);

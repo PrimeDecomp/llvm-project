@@ -9,6 +9,8 @@ typedef struct {
 	unsigned short processorLevel, processorRevision;
 } SystemInfo;
 __declspec(dllimport) void GetNativeSystemInfo(SystemInfo *info);
+__declspec(dllimport) int GetLogicalProcessorInformationEx(DWORD relationship, void *buffer, DWORD *length);
+__declspec(dllimport) DWORD GetLastError(void);
 __declspec(dllimport) void ExitProcess(unsigned int code);
 __declspec(dllimport) HANDLE GetModuleHandleA(const char *name);
 __declspec(dllimport) int GetModuleHandleExA(DWORD flags, const char *name, HANDLE *module);
@@ -67,5 +69,9 @@ void mainCRTStartup(void) {
 	GetNativeSystemInfo(&info);
 	CHECK(info.architecture == 9 && info.maximumAddress > 0xffffffffULL, 20);
 	CHECK(info.pageSize && info.processors && info.processorMask && info.allocationGranularity == 65536, 21);
+	DWORD topologySize = 0;
+	CHECK(!GetLogicalProcessorInformationEx(4, 0, &topologySize), 22);
+	DWORD topologyError = GetLastError();
+	CHECK((topologyError == 122 && topologySize > 0) || (topologyError == 120 && topologySize == 0), 23);
 	ExitProcess(0);
 }

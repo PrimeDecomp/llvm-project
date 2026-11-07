@@ -69,6 +69,7 @@ using LPOSVERSIONINFOEXW = OSVERSIONINFOEXW *;
 namespace kernel32 {
 
 void WINAPI GetSystemInfo(LPSYSTEM_INFO lpSystemInfo);
+BOOL WINAPI GetLogicalProcessorInformationEx(DWORD RelationshipType, LPVOID Buffer, PDWORD ReturnedLength);
 #ifdef WIBO_GUEST_64
 void WINAPI GetNativeSystemInfo(LPSYSTEM_INFO lpSystemInfo);
 #endif

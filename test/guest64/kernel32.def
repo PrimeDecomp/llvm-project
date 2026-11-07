@@ -1,5 +1,6 @@
 LIBRARY kernel32.dll
 EXPORTS
+  GetLogicalProcessorInformationEx
 ExitProcess
 GetModuleHandleA
 GetModuleHandleExA
